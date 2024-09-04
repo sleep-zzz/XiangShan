@@ -428,6 +428,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val u_idle :: u_buffer :: u_sec_buffer :: Nil = Enum(3)
   val u_state = RegInit(u_idle)
   val u_req_conflict_stall = RegInit(false.B)
+  val write_ready = tables.map(_.io.update.ready).reduce(_&&_)
 
   //If there is an update read req, the req data needs to be temporarily stored
   val buffer_full_target = RegInit(0.U.asTypeOf(update.full_target))
@@ -444,11 +445,11 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val second_buffer_updateMisPred = RegInit(0.U.asTypeOf(update.mispred_mask(numBr))) // the last one indicates jmp results
   val second_buffer_ufolded_hist = RegInit(0.U.asTypeOf(new AllFoldedHistories(foldedGHistInfos)))
 
-  val u_req_valid  = (updateValid || u_req_conflict_stall) && !(io.s1_fire(3) && s1_isIndirect)
+  val u_req_valid  = (updateValid || u_req_conflict_stall) && !(io.s1_fire(3) && s1_isIndirect) && write_ready
   val u_req_pc = Mux(u_req_conflict_stall, Mux(u_state === u_sec_buffer, second_buffer_u_pc, buffer_u_pc), update.pc)
   val u_req_folded_hist = Mux(u_req_conflict_stall, Mux(u_state === u_sec_buffer, second_buffer_ufolded_hist, buffer_ufolded_hist), ufolded_hist)
   val u_req_valid_reg = RegNext(u_req_valid)
-  val u_req_conflict = updateValid && io.s1_fire(3) && s1_isIndirect
+  val u_req_conflict = updateValid && (io.s1_fire(3) && s1_isIndirect || !write_ready || tables.map(_.io.update.valid).reduce(_||_))
 
   //Read during updates
   val u_updateValid       = RegNext(u_req_valid_reg, init = false.B)
@@ -669,7 +670,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   // all should be ready for req
   io.s1_ready := tables.map(_.io.req.ready).reduce(_&&_)
   //if ittage table has conflict need block ftq update req
-  io.update.ready := tables.map(_.io.update.ready).reduce(_&&_) && !u_req_conflict_stall
+  io.update.ready := write_ready && !u_req_conflict_stall
   XSPerfAccumulate("ittage_update_not_ready", io.update.ready)
   val ittage_updateMask_and_read_conflict = RegNext(updateMask.reduce(_||_)) && io.s1_fire(3) && s1_isIndirect
   XSPerfAccumulate("ittage_updateMask_and_read_conflict", ittage_updateMask_and_read_conflict)
