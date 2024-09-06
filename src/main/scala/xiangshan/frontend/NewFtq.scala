@@ -1279,7 +1279,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // ****************************************************************
   // **************************** to bpu ****************************
   // ****************************************************************
-  val bpu_update_ready = io.toBpu.update.ready
+  // val bpu_update_ready = io.toBpu.update.ready
+  val do_commit_ready = WireInit(false.B)
 
   io.toBpu.redirctFromIFU := ifuRedirectToBpu.valid
   io.toBpu.redirect := Mux(fromBackendRedirect.valid, fromBackendRedirect, ifuRedirectToBpu)
@@ -1292,12 +1293,12 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   val may_have_stall_from_bpu = Wire(Bool())
   val bpu_ftb_update_stall = RegInit(0.U(2.W)) // 2-cycle stall, so we need 3 states
-  may_have_stall_from_bpu := bpu_ftb_update_stall =/= 0.U || !bpu_update_ready
+  may_have_stall_from_bpu := bpu_ftb_update_stall =/= 0.U || !do_commit_ready
 
   val validInstructions = commitStateQueueReg(commPtr.value).map(s => s === c_toCommit || s === c_committed)
   val lastInstructionStatus = PriorityMux(validInstructions.reverse.zip(commitStateQueueReg(commPtr.value).reverse))
   val firstInstructionFlushed = commitStateQueueReg(commPtr.value)(0) === c_flushed
-  canCommit := commPtr =/= ifuWbPtr && !may_have_stall_from_bpu &&
+  canCommit := commPtr =/= ifuWbPtr && !may_have_stall_from_bpu && do_commit_ready &&
     (isAfter(robCommPtr, commPtr) ||
       validInstructions.reduce(_ || _) && lastInstructionStatus === c_committed)
   val canMoveCommPtr = commPtr =/= ifuWbPtr && !may_have_stall_from_bpu &&
@@ -1342,7 +1343,15 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   // need one cycle to read mem and srams
   val do_commit_ptr = RegEnable(commPtr, canCommit)
-  val do_commit = RegNext(canCommit, init=false.B)
+  val do_commit = RegInit(false.B)
+  val do_commit_fire = do_commit && io.toBpu.update.ready
+  when(canCommit){
+    do_commit := true.B
+  }.elsewhen(do_commit_fire){
+    do_commit := false.B
+  }
+  // val do_commit = RegNext(canCommit, init=false.B)
+  do_commit_ready := do_commit_fire || !do_commit
   when (canMoveCommPtr) {
     commPtr_write := commPtrPlus1
     commPtrPlus1_write := commPtrPlus1 + 1.U
@@ -1393,7 +1402,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   XSPerfHistogram("bpu_update_latency", update_latency, io.toBpu.update.valid, 0, 64, 2)
 
   io.toBpu.update := DontCare
-  io.toBpu.update.valid := commit_valid && do_commit
+  io.toBpu.update.valid := commit_valid && do_commit_fire
+  // io.toBpu.update.valid := commit_valid && do_commit
   val update = io.toBpu.update.bits
   update.false_hit   := commit_hit === h_false_hit
   update.pc          := commit_pc_bundle.startAddr
@@ -1504,7 +1514,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   XSPerfAccumulate("entry", validEntries)
   XSPerfAccumulate("bpu_to_ftq_stall", enq.valid && !enq.ready)
-  XSPerfAccumulate("bpu_to_ftq_stall_due_to_update_stall", enq.valid && !enq.ready && !bpu_update_ready)
+  XSPerfAccumulate("bpu_to_ftq_stall_due_to_update_stall", enq.valid && !enq.ready && !do_commit_ready)
   XSPerfAccumulate("mispredictRedirect", perf_redirect.valid && RedirectLevel.flushAfter === perf_redirect.bits.level)
   XSPerfAccumulate("replayRedirect", perf_redirect.valid && RedirectLevel.flushItself(perf_redirect.bits.level))
   XSPerfAccumulate("predecodeRedirect", fromIfuRedirect.valid)
