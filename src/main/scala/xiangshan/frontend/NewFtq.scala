@@ -76,7 +76,7 @@ class FtqNRSRAM[T <: Data](gen: T, numRead: Int)(implicit p: Parameters) extends
   })
 
   for (i <- 0 until numRead) {
-    val sram = Module(new SRAMTemplate(gen, FtqSize, withClockGate = true))
+    val sram = Module(new SRAMTemplate(gen, FtqSize, withClockGate = true, holdRead = true))
     sram.io.r.req.valid       := io.ren(i)
     sram.io.r.req.bits.setIdx := io.raddr(i)
     io.rdata(i)               := sram.io.r.resp.data(0)
@@ -1327,7 +1327,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // ****************************************************************
   // **************************** to bpu ****************************
   // ****************************************************************
-  val bpu_update_ready = io.toBpu.update.ready
+  // val bpu_update_ready = io.toBpu.update.ready
+  val do_commit_ready = WireInit(false.B)
 
   io.toBpu.redirctFromIFU := ifuRedirectToBpu.valid
   io.toBpu.redirect       := Mux(fromBackendRedirect.valid, fromBackendRedirect, ifuRedirectToBpu)
@@ -1350,13 +1351,13 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   )
 
   val may_have_stall_from_bpu = Wire(Bool())
-  val bpu_ftb_update_stall    = RegInit(0.U(2.W)) // 2-cycle stall, so we need 3 states
-  may_have_stall_from_bpu := bpu_ftb_update_stall =/= 0.U || !bpu_update_ready
+  val bpu_ftb_update_stall = RegInit(0.U(2.W)) // 2-cycle stall, so we need 3 states
+  may_have_stall_from_bpu := bpu_ftb_update_stall =/= 0.U || !do_commit_ready
 
   val validInstructions       = commitStateQueueReg(commPtr.value).map(s => s === c_toCommit || s === c_committed)
   val lastInstructionStatus   = PriorityMux(validInstructions.reverse.zip(commitStateQueueReg(commPtr.value).reverse))
   val firstInstructionFlushed = commitStateQueueReg(commPtr.value)(0) === c_flushed
-  canCommit := commPtr =/= ifuWbPtr && !may_have_stall_from_bpu &&
+  canCommit := commPtr =/= ifuWbPtr && !may_have_stall_from_bpu && do_commit_ready &&
     (isAfter(robCommPtr, commPtr) ||
       validInstructions.reduce(_ || _) && lastInstructionStatus === c_committed)
   val canMoveCommPtr = commPtr =/= ifuWbPtr && !may_have_stall_from_bpu &&
@@ -1406,7 +1407,12 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   // need one cycle to read mem and srams
   val do_commit_ptr = RegEnable(commPtr, canCommit)
-  val do_commit     = RegNext(canCommit, init = false.B)
+  // val do_commit = RegNext(canCommit, init=false.B)
+  val do_commit = RegInit(false.B)
+  val do_commit_fire = do_commit && io.toBpu.update.ready
+  when(canCommit)             { do_commit := true.B  }
+    .elsewhen(do_commit_fire) { do_commit := false.B }
+  do_commit_ready := do_commit_fire || !do_commit
   when(canMoveCommPtr) {
     commPtr_write      := commPtrPlus1
     commPtrPlus1_write := commPtrPlus1 + 1.U
@@ -1451,33 +1457,54 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   }
 
   // TODO: remove this
-  XSError(do_commit && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
+  XSError(do_commit_fire && diff_commit_target =/= io.toBpu.update.bits.full_target, "\ncommit target should be the same as update target\n")
+  // XSError(do_commit_fire && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
+  // XSError(do_commit && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
 
   // update latency stats
   val update_latency = GTimer() - pred_s1_cycle.getOrElse(dummy_s1_pred_cycle_vec)(do_commit_ptr.value) + 1.U
   XSPerfHistogram("bpu_update_latency", update_latency, io.toBpu.update.valid, 0, 64, 2)
 
-  io.toBpu.update       := DontCare
-  io.toBpu.update.valid := commit_valid && do_commit
-  val update = io.toBpu.update.bits
+  val update = WireInit(0.U.asTypeOf(new BranchPredictionUpdate()))
+  val update_buffer_valid = RegInit(false.B)
+  val update_buffer = RegInit(0.U.asTypeOf(new BranchPredictionUpdate()))
+  val update_buffer_pc = RegInit(0.U.asTypeOf(commit_pc_bundle.startAddr))
+  val update_buffer_target = RegInit(0.U.asTypeOf(commit_target))
+  val update_buffer_spec_info = RegInit(0.U.asTypeOf(commit_spec_meta))
+  io.toBpu.update.bits := update
+  io.toBpu.update.valid := commit_valid && do_commit_fire
+  // io.toBpu.update.valid := commit_valid && do_commit
+  // val update = io.toBpu.update.bits
   update.false_hit   := commit_hit === h_false_hit
-  update.pc          := commit_pc_bundle.startAddr
+  update.pc          := Mux(update_buffer_valid, update_buffer_pc, commit_pc_bundle.startAddr)
   update.meta        := commit_meta
   update.cfi_idx     := commit_cfi
-  update.full_target := commit_target
+  update.full_target := Mux(update_buffer_valid, update_buffer_target, commit_target)
   update.from_stage  := commit_stage
-  update.spec_info   := commit_spec_meta
-  XSError(commit_valid && do_commit && debug_cfi, "\ncommit cfi can be non c_commited\n")
+  update.spec_info   := Mux(update_buffer_valid, update_buffer_spec_info, commit_spec_meta)
+
+
+  when(do_commit && !do_commit_fire && !update_buffer_valid){
+    update_buffer_valid := true.B
+    update_buffer_pc := commit_pc_bundle.startAddr
+    update_buffer_target := commit_target
+    update_buffer_spec_info := commit_spec_meta
+    update_buffer := update
+  }.elsewhen(do_commit_fire){
+    update_buffer_valid := false.B
+  }
+  // XSError(commit_valid && do_commit_fire && debug_cfi, "\ncommit cfi can be non c_commited\n")
+  // XSError(commit_valid && do_commit && debug_cfi, "\ncommit cfi can be non c_commited\n")
 
   val commit_real_hit  = commit_hit === h_hit
   val update_ftb_entry = update.ftb_entry
 
   val ftbEntryGen = Module(new FTBEntryGen).io
-  ftbEntryGen.start_addr     := commit_pc_bundle.startAddr
+  ftbEntryGen.start_addr     := Mux(update_buffer_valid, update_buffer_pc, commit_pc_bundle.startAddr)
   ftbEntryGen.old_entry      := commit_ftb_entry
   ftbEntryGen.pd             := commit_pd
   ftbEntryGen.cfiIndex       := commit_cfi
-  ftbEntryGen.target         := commit_target
+  ftbEntryGen.target         := Mux(update_buffer_valid, update_buffer_target, commit_target)
   ftbEntryGen.hit            := commit_real_hit
   ftbEntryGen.mispredict_vec := commit_mispredict
 
@@ -1491,6 +1518,65 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     case (valid, offset) => valid && commit_instCommited(offset)
   }
   update.jmp_taken := ftbEntryGen.jmp_taken
+
+  def updateConsistent(x: BranchPredictionUpdate, y: BranchPredictionUpdate) = {
+    val pcDiff = x.pc === y.pc
+    val specInfoDiff = x.spec_info.asUInt === y.spec_info.asUInt
+    val ftbEntryDiff = x.ftb_entry.entryConsistent(y.ftb_entry)
+
+    val cfiIdxDiff = x.cfi_idx.asUInt === y.cfi_idx.asUInt
+    val brTakenMaskDiff : IndexedSeq[Bool] =
+      x.br_taken_mask.zip(y.br_taken_mask).map{
+        case(x, y) => x === y
+      }
+    val brCommitedDiff : IndexedSeq[Bool] =
+      x.br_committed.zip(y.br_committed).map{
+        case(x, y) => x === y
+      }
+    val jmpTakeDiff = x.jmp_taken === y.jmp_taken
+    val mispredMaskDiff : IndexedSeq[Bool] =
+      x.mispred_mask.zip(y.mispred_mask).map{
+        case(x, y) => x === y
+      }
+    val predHitDiff = x.pred_hit === y.pred_hit
+    val falseHitDiff = x.false_hit === y.false_hit
+    val newBrInsertPosDiff : IndexedSeq[Bool] =
+      x.new_br_insert_pos.zip(y.new_br_insert_pos).map{
+        case(x, y) => x === y
+      }
+    val oldEntryDiff = x.old_entry === y.old_entry
+    val metaDiff = x.meta === y.meta
+    val fullTargetDiff = x.full_target === y.full_target
+    val fromStageDiff = x.from_stage === y.from_stage
+    val ghistDiff = x.ghist === y.ghist
+
+    VecInit(
+      pcDiff,
+      specInfoDiff,
+      ftbEntryDiff,
+
+      cfiIdxDiff,
+      brTakenMaskDiff.reduce(_&&_),
+      brCommitedDiff.reduce(_&&_),
+      jmpTakeDiff,
+      mispredMaskDiff.reduce(_&&_),
+      predHitDiff,
+      falseHitDiff,
+      newBrInsertPosDiff.reduce(_&&_),
+      oldEntryDiff,
+      metaDiff,
+      fullTargetDiff,
+      fromStageDiff,
+      ghistDiff
+    )
+  }
+  val update_is_equal_buffer = updateConsistent(update_buffer, io.toBpu.update.bits)
+  val update_and_not = !(update_is_equal_buffer.reduce(_&&_))
+  dontTouch(update_is_equal_buffer)
+  dontTouch(update_and_not)
+
+  XSError(RegNext(update_and_not && update_buffer_valid), p"When BPU update update_buffer is not equal io.toBpu.update.bits updateConsistent :${Binary(update_is_equal_buffer.asUInt)}!\n")
+
 
   // update.full_pred.fromFtbEntry(ftbEntryGen.new_entry, update.pc)
   // update.full_pred.jalr_target := commit_target
@@ -1536,21 +1622,14 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     val predCycle = commit_meta(63, 0)
     val target    = commit_target
 
-    val brIdx = OHToUInt(Reverse(Cat(update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map { case (v, offset) =>
-      v && offset === i.U
-    })))
-    val inFtbEntry = update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map { case (v, offset) =>
-      v && offset === i.U
-    }.reduce(_ || _)
-    val addIntoHist =
-      ((commit_hit === h_hit) && inFtbEntry) || (!(commit_hit === h_hit) && i.U === commit_cfi.bits && isBr && commit_cfi.valid)
-    XSDebug(
-      v && do_commit && isCfi,
-      p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
-        p"taken(${isTaken}) mispred(${misPred}) cycle($predCycle) hist(${histPtr.value}) " +
-        p"startAddr(${Hexadecimal(commit_pc_bundle.startAddr)}) AddIntoHist(${addIntoHist}) " +
-        p"brInEntry(${inFtbEntry}) brIdx(${brIdx}) target(${Hexadecimal(target)})\n"
-    )
+    val brIdx = OHToUInt(Reverse(Cat(update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U})))
+    val inFtbEntry = update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U}.reduce(_||_)
+    val addIntoHist = ((commit_hit === h_hit) && inFtbEntry) || ((!(commit_hit === h_hit) && i.U === commit_cfi.bits && isBr && commit_cfi.valid))
+    XSDebug(v && do_commit_fire && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
+    // XSDebug(v && do_commit && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
+    p"taken(${isTaken}) mispred(${misPred}) cycle($predCycle) hist(${histPtr.value}) " +
+    p"startAddr(${Hexadecimal(commit_pc_bundle.startAddr)}) AddIntoHist(${addIntoHist}) " +
+    p"brInEntry(${inFtbEntry}) brIdx(${brIdx}) target(${Hexadecimal(target)})\n")
 
     val logbundle = Wire(new FtqDebugBundle)
     logbundle.pc        := pc
@@ -1577,7 +1656,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   XSPerfAccumulate("entry", validEntries)
   XSPerfAccumulate("bpu_to_ftq_stall", enq.valid && !enq.ready)
-  XSPerfAccumulate("bpu_to_ftq_stall_due_to_update_stall", enq.valid && !enq.ready && !bpu_update_ready)
+  XSPerfAccumulate("bpu_to_ftq_stall_due_to_update_stall", enq.valid && !enq.ready && !do_commit_ready)
   XSPerfAccumulate("mispredictRedirect", perf_redirect.valid && RedirectLevel.flushAfter === perf_redirect.bits.level)
   XSPerfAccumulate("replayRedirect", perf_redirect.valid && RedirectLevel.flushItself(perf_redirect.bits.level))
   XSPerfAccumulate("predecodeRedirect", fromIfuRedirect.valid)
@@ -1599,7 +1678,11 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   val from_bpu = io.fromBpu.resp.bits
   val to_ifu   = io.toIfu.req.bits
 
-  XSPerfHistogram("commit_num_inst", PopCount(commit_inst_mask), do_commit, 0, PredictWidth + 1, 1)
+  XSPerfHistogram("commit_num_inst", PopCount(commit_inst_mask), do_commit_fire, 0, PredictWidth+1, 1)
+  // XSPerfHistogram("commit_num_inst", PopCount(commit_inst_mask), do_commit, 0, PredictWidth+1, 1)
+
+
+
 
   val commit_jal_mask  = UIntToOH(commit_pd.jmpOffset) & Fill(PredictWidth, commit_pd.hasJal.asTypeOf(UInt(1.W)))
   val commit_jalr_mask = UIntToOH(commit_pd.jmpOffset) & Fill(PredictWidth, commit_pd.hasJalr.asTypeOf(UInt(1.W)))
@@ -1699,14 +1782,13 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // --------------------------- Debug --------------------------------
   // XSDebug(enq_fire, p"enq! " + io.fromBpu.resp.bits.toPrintable)
   XSDebug(io.toIfu.req.fire, p"fire to ifu " + io.toIfu.req.bits.toPrintable)
-  XSDebug(do_commit, p"deq! [ptr] $do_commit_ptr\n")
+  XSDebug(do_commit_fire, p"deq! [ptr] $do_commit_ptr\n")
+  // XSDebug(do_commit, p"deq! [ptr] $do_commit_ptr\n")
   XSDebug(true.B, p"[bpuPtr] $bpuPtr, [ifuPtr] $ifuPtr, [ifuWbPtr] $ifuWbPtr [commPtr] $commPtr\n")
-  XSDebug(
-    true.B,
-    p"[in] v:${io.fromBpu.resp.valid} r:${io.fromBpu.resp.ready} " +
-      p"[out] v:${io.toIfu.req.valid} r:${io.toIfu.req.ready}\n"
-  )
-  XSDebug(do_commit, p"[deq info] cfiIndex: $commit_cfi, $commit_pc_bundle, target: ${Hexadecimal(commit_target)}\n")
+  XSDebug(true.B, p"[in] v:${io.fromBpu.resp.valid} r:${io.fromBpu.resp.ready} " +
+    p"[out] v:${io.toIfu.req.valid} r:${io.toIfu.req.ready}\n")
+  XSDebug(do_commit_fire, p"[deq info] cfiIndex: $commit_cfi, $commit_pc_bundle, target: ${Hexadecimal(commit_target)}\n")
+  // XSDebug(do_commit, p"[deq info] cfiIndex: $commit_cfi, $commit_pc_bundle, target: ${Hexadecimal(commit_target)}\n")
 
   //   def ubtbCheck(commit: FtqEntry, predAns: Seq[PredictorAnswer], isWrong: Bool) = {
   //     commit.valids.zip(commit.pd).zip(predAns).zip(commit.takens).map {
