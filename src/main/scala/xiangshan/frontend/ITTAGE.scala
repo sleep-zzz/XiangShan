@@ -253,7 +253,7 @@ class ITTageTable
   io.req.ready := true.B // !io.update.valid
   // io.req.ready := !bank_conflict
 
-  io.update.ready := !update_buff_valid
+  io.update.ready := !update_buff_valid || update_buff_valid && !io.req.fire
   XSPerfAccumulate("ittage_table_read_write_conflict", read_write_conflict)
   XSPerfAccumulate("ittage_table_update_buff_valid", update_buff_valid)
 
@@ -429,6 +429,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val u_state = RegInit(u_idle)
   val u_req_conflict_stall = RegInit(false.B)
   val write_ready = tables.map(_.io.update.ready).reduce(_&&_)
+  val buffer_fire = WireInit(false.B)
 
   //If there is an update read req, the req data needs to be temporarily stored
   val buffer_full_target = RegInit(0.U.asTypeOf(update.full_target))
@@ -445,14 +446,18 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val second_buffer_updateMisPred = RegInit(0.U.asTypeOf(update.mispred_mask(numBr))) // the last one indicates jmp results
   val second_buffer_ufolded_hist = RegInit(0.U.asTypeOf(new AllFoldedHistories(foldedGHistInfos)))
 
-  val u_req_valid  = (updateValid || u_req_conflict_stall) && !(io.s1_fire(3) && s1_isIndirect) && write_ready
+  val u_write_ready       = WireInit(false.B)
+  val u_write_fire        = WireInit(false.B)
+  val u_req_valid  = (updateValid || u_req_conflict_stall) && !(io.s1_fire(3) && s1_isIndirect) && u_write_ready
   val u_req_pc = Mux(u_req_conflict_stall, Mux(u_state === u_sec_buffer, second_buffer_u_pc, buffer_u_pc), update.pc)
   val u_req_folded_hist = Mux(u_req_conflict_stall, Mux(u_state === u_sec_buffer, second_buffer_ufolded_hist, buffer_ufolded_hist), ufolded_hist)
   val u_req_valid_reg = RegNext(u_req_valid)
-  val u_req_conflict = updateValid && (io.s1_fire(3) && s1_isIndirect || !write_ready || tables.map(_.io.update.valid).reduce(_||_))
+  val u_req_conflict = updateValid && io.s1_fire(3) && s1_isIndirect && u_write_ready
+  // val u_req_conflict = updateValid && (io.s1_fire(3) && s1_isIndirect || !write_ready || tables.map(_.io.update.valid).reduce(_||_))
 
   //Read during updates
-  val u_updateValid       = RegNext(u_req_valid_reg, init = false.B)
+  val u_updateValid       = RegInit(false.B)
+  // val u_updateValid       = RegNext(u_req_valid_reg, init = false.B)
   val u_providerTarget    = RegEnable(s2_providerTarget, u_req_valid_reg)
   val u_altProviderTarget = RegEnable(s2_altProviderTarget, u_req_valid_reg)
   val u_provided          = RegEnable(s2_provided, u_req_valid_reg)
@@ -525,6 +530,15 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
         second_buffer_valid := false.B
       }
     }
+  }
+  buffer_fire := u_write_ready && u_state =/= u_idle && u_req_valid_reg
+  // val buffer_fire = tables.map(_.io.update.ready).reduce(_&&_) && buffer_valid
+  u_write_fire := u_updateValid && write_ready
+  u_write_ready := u_write_fire || !u_updateValid
+  when(buffer_fire){
+    u_updateValid := true.B
+  }.elsewhen(u_write_fire){
+    u_updateValid := false.B
   }
 
   // Predict
@@ -670,7 +684,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   // all should be ready for req
   io.s1_ready := tables.map(_.io.req.ready).reduce(_&&_)
   //if ittage table has conflict need block ftq update req
-  io.update.ready := write_ready && !u_req_conflict_stall
+  io.update.ready := !u_req_conflict_stall
   XSPerfAccumulate("ittage_update_not_ready", io.update.ready)
   val ittage_updateMask_and_read_conflict = RegNext(updateMask.reduce(_||_)) && io.s1_fire(3) && s1_isIndirect
   XSPerfAccumulate("ittage_updateMask_and_read_conflict", ittage_updateMask_and_read_conflict)
