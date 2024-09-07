@@ -1395,7 +1395,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   }
 
   // TODO: remove this
-  XSError(do_commit && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
+  XSError(do_commit_fire && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
+  // XSError(do_commit && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
 
   // update latency stats
   val update_latency = GTimer() - pred_s1_cycle.getOrElse(dummy_s1_pred_cycle_vec)(do_commit_ptr.value) + 1.U
@@ -1412,7 +1413,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   update.full_target := commit_target
   update.from_stage  := commit_stage
   update.spec_info   := commit_spec_meta
-  XSError(commit_valid && do_commit && debug_cfi, "\ncommit cfi can be non c_commited\n")
+  XSError(commit_valid && do_commit_fire && debug_cfi, "\ncommit cfi can be non c_commited\n")
+  // XSError(commit_valid && do_commit && debug_cfi, "\ncommit cfi can be non c_commited\n")
 
   val commit_real_hit = commit_hit === h_hit
   val update_ftb_entry = update.ftb_entry
@@ -1484,7 +1486,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
     val brIdx = OHToUInt(Reverse(Cat(update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U})))
     val inFtbEntry = update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U}.reduce(_||_)
     val addIntoHist = ((commit_hit === h_hit) && inFtbEntry) || ((!(commit_hit === h_hit) && i.U === commit_cfi.bits && isBr && commit_cfi.valid))
-    XSDebug(v && do_commit && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
+    XSDebug(v && do_commit_fire && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
+    // XSDebug(v && do_commit && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
     p"taken(${isTaken}) mispred(${misPred}) cycle($predCycle) hist(${histPtr.value}) " +
     p"startAddr(${Hexadecimal(commit_pc_bundle.startAddr)}) AddIntoHist(${addIntoHist}) " +
     p"brInEntry(${inFtbEntry}) brIdx(${brIdx}) target(${Hexadecimal(target)})\n")
@@ -1534,7 +1537,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   val to_ifu = io.toIfu.req.bits
 
 
-  XSPerfHistogram("commit_num_inst", PopCount(commit_inst_mask), do_commit, 0, PredictWidth+1, 1)
+  XSPerfHistogram("commit_num_inst", PopCount(commit_inst_mask), do_commit_fire, 0, PredictWidth+1, 1)
+  // XSPerfHistogram("commit_num_inst", PopCount(commit_inst_mask), do_commit, 0, PredictWidth+1, 1)
 
 
 
@@ -1639,11 +1643,13 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // --------------------------- Debug --------------------------------
   // XSDebug(enq_fire, p"enq! " + io.fromBpu.resp.bits.toPrintable)
   XSDebug(io.toIfu.req.fire, p"fire to ifu " + io.toIfu.req.bits.toPrintable)
-  XSDebug(do_commit, p"deq! [ptr] $do_commit_ptr\n")
+  XSDebug(do_commit_fire, p"deq! [ptr] $do_commit_ptr\n")
+  // XSDebug(do_commit, p"deq! [ptr] $do_commit_ptr\n")
   XSDebug(true.B, p"[bpuPtr] $bpuPtr, [ifuPtr] $ifuPtr, [ifuWbPtr] $ifuWbPtr [commPtr] $commPtr\n")
   XSDebug(true.B, p"[in] v:${io.fromBpu.resp.valid} r:${io.fromBpu.resp.ready} " +
     p"[out] v:${io.toIfu.req.valid} r:${io.toIfu.req.ready}\n")
-  XSDebug(do_commit, p"[deq info] cfiIndex: $commit_cfi, $commit_pc_bundle, target: ${Hexadecimal(commit_target)}\n")
+  XSDebug(do_commit_fire, p"[deq info] cfiIndex: $commit_cfi, $commit_pc_bundle, target: ${Hexadecimal(commit_target)}\n")
+  // XSDebug(do_commit, p"[deq info] cfiIndex: $commit_cfi, $commit_pc_bundle, target: ${Hexadecimal(commit_target)}\n")
 
   //   def ubtbCheck(commit: FtqEntry, predAns: Seq[PredictorAnswer], isWrong: Bool) = {
   //     commit.valids.zip(commit.pd).zip(predAns).zip(commit.takens).map {
