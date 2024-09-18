@@ -86,40 +86,6 @@ class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
     io.hit_data(i).bits  := data_mem.read(hit_idx)(i)
   }
 
-  //Extra ports are used to handle dual port read/write conflicts
-  if (extraPort.isDefined) {
-    val conflict_flags = RegInit(0.U.asTypeOf(Vec(numEntries, Bool())))
-    val conflict_way_mask = RegInit(0.U.asTypeOf(io.conflict_way_mask.get))
-    val conflict_data = RegInit(VecInit(Seq.tabulate(numWays)( i => 0.U.asTypeOf(gen))))
-    // val conflict_data = VecInit(numWays, RegInit(0.U.asTypeOf(gen)))
-    val conflict_idx = OHToUInt(conflict_flags)
-
-    idx_tag_cam.io.ridx.get := conflict_idx
-
-    when (io.wen && io.conflict_valid.getOrElse(false.B)) {
-      conflict_flags(hit_idx) := true.B
-      conflict_way_mask := io.conflict_way_mask.get
-      conflict_data.zipWithIndex.foreach { case (s, i) => s := io.write_data(i)}
-    }
-    when (io.conflict_clean.getOrElse(false.B)) {
-      conflict_flags(conflict_idx) := false.B
-      // conflict_way_mask := 0.U
-    }
-    // for update the cached data
-    io.has_conflict.get := conflict_flags.orR
-    io.update_idx.get := idx_tag_cam.io.rdata.get.idx
-    io.update_way_mask.get := conflict_way_mask
-    io.update_data.foreach(_ := conflict_data)
-    // io.update_data.get := conflict_data
-    // for (i <- 0 until numWays) {
-    // for (i <- 0 until numWays) {
-      
-    //   io.update_data.foreach := data_mem.read(hit_idx)(i)
-    // }
-    //  io.update_data.foreach(_ := data_mem.read(conflict_idx))
-    // }
-  } else None
-
   // Replacer
   // Because data_mem can only write to one index
   // Implementing a per-way replacer is meaningless
@@ -160,6 +126,40 @@ class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
   idx_tag_cam.io.w.valid := enq_en
   idx_tag_cam.io.w.bits.index := enq_idx
   idx_tag_cam.io.w.bits.data(io.write_idx, io.write_tag.getOrElse(0.U))
+
+  //Extra ports are used to handle dual port read/write conflicts
+  if (extraPort.isDefined) {
+    val conflict_flags = RegInit(0.U.asTypeOf(Vec(numEntries, Bool())))
+    val conflict_way_mask = RegInit(0.U.asTypeOf(io.conflict_way_mask.get))
+    val conflict_data = RegInit(VecInit(Seq.tabulate(numWays)( i => 0.U.asTypeOf(gen))))
+    // val conflict_data = VecInit(numWays, RegInit(0.U.asTypeOf(gen)))
+    val conflict_idx = OHToUInt(conflict_flags)
+
+    idx_tag_cam.io.ridx.get := conflict_idx
+
+    when (io.wen && io.conflict_valid.getOrElse(false.B)) {
+      conflict_flags(Mux(hit, hit_idx, enq_idx)) := true.B
+      conflict_way_mask := io.conflict_way_mask.get
+      conflict_data.zipWithIndex.foreach { case (s, i) => s := io.write_data(i)}
+    }
+    when (io.conflict_clean.getOrElse(false.B)) {
+      conflict_flags(conflict_idx) := false.B
+      // conflict_way_mask := 0.U
+    }
+    // for update the cached data
+    io.has_conflict.get := conflict_flags.orR
+    io.update_idx.get := idx_tag_cam.io.rdata.get.idx
+    io.update_way_mask.get := conflict_way_mask
+    io.update_data.foreach(_ := conflict_data)
+    // io.update_data.get := conflict_data
+    // for (i <- 0 until numWays) {
+    // for (i <- 0 until numWays) {
+
+    //   io.update_data.foreach := data_mem.read(hit_idx)(i)
+    // }
+    //  io.update_data.foreach(_ := data_mem.read(conflict_idx))
+    // }
+  } else None
 
   XSPerfAccumulate("wrbypass_hit",  io.wen &&  hit)
   XSPerfAccumulate("wrbypass_miss", io.wen && !hit)
