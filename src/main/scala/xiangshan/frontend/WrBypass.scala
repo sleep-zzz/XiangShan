@@ -22,9 +22,10 @@ import xiangshan._
 import utils._
 import utility._
 import xiangshan.cache.mmu.CAMTemplate
+import freechips.rocketchip.util.SeqBoolBitwiseOps
 
 class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
-  val numWays: Int = 1, val tagWidth: Int = 0)(implicit p: Parameters) extends XSModule {
+  val numWays: Int = 1, val tagWidth: Int = 0, val extraPort: Option[Boolean] = None)(implicit p: Parameters) extends XSModule {
   require(numEntries >= 0)
   require(idxWidth > 0)
   require(numWays >= 1)
@@ -38,8 +39,19 @@ class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
     val write_data = Input(Vec(numWays, gen))
     val write_way_mask = if (multipleWays) Some(Input(Vec(numWays, Bool()))) else None
 
+    val conflict_valid = if(extraPort.isDefined) Some(Input(Bool())) else None
+    val conflict_way_mask = if(extraPort.isDefined) Some(Input(UInt(numBr.W))) else None
+
     val hit = Output(Bool())
     val hit_data = Vec(numWays, Valid(gen))
+    // val r = if(extraPort.isDefined) Some(new Bundle {
+    val has_conflict = if(extraPort.isDefined) Some(Output(Bool())) else None
+    val update_idx = if(extraPort.isDefined) Some(Output(UInt(idxWidth.W))) else None
+    val update_data = if(extraPort.isDefined) Some(Output(Vec(numWays, gen))) else None
+    val update_way_mask = if(extraPort.isDefined) Some(Output(UInt(numBr.W))) else None
+
+    val conflict_clean = if(extraPort.isDefined) Some(Input(Bool())) else None
+    // }) else None
   })
 
   class Idx_Tag extends Bundle {
@@ -50,7 +62,13 @@ class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
       this.tag.map(_ := tag)
     }
   }
-  val idx_tag_cam = Module(new CAMTemplate(new Idx_Tag, numEntries, 1))
+
+  // val idx_tag_cam = if (extraPort.isDefined)
+  //                     Module(new IndexableCAMTemplate(new Idx_Tag, numEntries, 1, isIndexable = true))
+  //                   else
+  //                     Module(new IndexableCAMTemplate(new Idx_Tag, numEntries, 1))
+  val idx_tag_cam = Module(new IndexableCAMTemplate(new Idx_Tag, numEntries, 1, isIndexable = extraPort.isDefined))
+  // val idx_tag_cam = Module(new CAMTemplate(new Idx_Tag, numEntries, 1))
   val data_mem = Mem(numEntries, Vec(numWays, gen))
 
   val valids = RegInit(0.U.asTypeOf(Vec(numEntries, Vec(numWays, Bool()))))
@@ -67,6 +85,40 @@ class WrBypass[T <: Data](gen: T, val numEntries: Int, val idxWidth: Int,
     io.hit_data(i).valid := Mux1H(hits_oh, valids)(i)
     io.hit_data(i).bits  := data_mem.read(hit_idx)(i)
   }
+
+  //Extra ports are used to handle dual port read/write conflicts
+  if (extraPort.isDefined) {
+    val conflict_flags = RegInit(0.U.asTypeOf(Vec(numEntries, Bool())))
+    val conflict_way_mask = RegInit(0.U.asTypeOf(io.conflict_way_mask.get))
+    val conflict_data = RegInit(VecInit(Seq.tabulate(numWays)( i => 0.U.asTypeOf(gen))))
+    // val conflict_data = VecInit(numWays, RegInit(0.U.asTypeOf(gen)))
+    val conflict_idx = OHToUInt(conflict_flags)
+
+    idx_tag_cam.io.ridx.get := conflict_idx
+
+    when (io.wen && io.conflict_valid.getOrElse(false.B)) {
+      conflict_flags(hit_idx) := true.B
+      conflict_way_mask := io.conflict_way_mask.get
+      conflict_data.zipWithIndex.foreach { case (s, i) => s := io.write_data(i)}
+    }
+    when (io.conflict_clean.getOrElse(false.B)) {
+      conflict_flags(conflict_idx) := false.B
+      // conflict_way_mask := 0.U
+    }
+    // for update the cached data
+    io.has_conflict.get := conflict_flags.orR
+    io.update_idx.get := idx_tag_cam.io.rdata.get.idx
+    io.update_way_mask.get := conflict_way_mask
+    io.update_data.foreach(_ := conflict_data)
+    // io.update_data.get := conflict_data
+    // for (i <- 0 until numWays) {
+    // for (i <- 0 until numWays) {
+      
+    //   io.update_data.foreach := data_mem.read(hit_idx)(i)
+    // }
+    //  io.update_data.foreach(_ := data_mem.read(conflict_idx))
+    // }
+  } else None
 
   // Replacer
   // Because data_mem can only write to one index
