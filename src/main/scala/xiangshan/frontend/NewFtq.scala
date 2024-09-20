@@ -1343,6 +1343,7 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
 
   // need one cycle to read mem and srams
   val do_commit_ptr = RegEnable(commPtr, canCommit)
+  // val do_commit = RegNext(canCommit, init=false.B)
   val do_commit = RegInit(false.B)
   val do_commit_fire = do_commit && io.toBpu.update.ready
   when(canCommit){
@@ -1350,7 +1351,6 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   }.elsewhen(do_commit_fire){
     do_commit := false.B
   }
-  // val do_commit = RegNext(canCommit, init=false.B)
   do_commit_ready := do_commit_fire || !do_commit
   when (canMoveCommPtr) {
     commPtr_write := commPtrPlus1
@@ -1395,17 +1395,21 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   }
 
   // TODO: remove this
-  XSError(do_commit_fire && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
+  XSError(do_commit_fire && diff_commit_target =/= io.toBpu.update.bits.full_target, "\ncommit target should be the same as update target\n")
+  // XSError(do_commit_fire && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
   // XSError(do_commit && diff_commit_target =/= commit_target, "\ncommit target should be the same as update target\n")
 
   // update latency stats
   val update_latency = GTimer() - pred_s1_cycle.getOrElse(dummy_s1_pred_cycle_vec)(do_commit_ptr.value) + 1.U
   XSPerfHistogram("bpu_update_latency", update_latency, io.toBpu.update.valid, 0, 64, 2)
 
-  io.toBpu.update := DontCare
+  val update = WireInit(0.U.asTypeOf(new BranchPredictionUpdate()))
+  val update_buffer_valid = RegInit(false.B)
+  val update_buffer = RegInit(0.U.asTypeOf(new BranchPredictionUpdate()))
+  io.toBpu.update.bits := Mux(update_buffer_valid, update_buffer, update)
   io.toBpu.update.valid := commit_valid && do_commit_fire
   // io.toBpu.update.valid := commit_valid && do_commit
-  val update = io.toBpu.update.bits
+  // val update = io.toBpu.update.bits
   update.false_hit   := commit_hit === h_false_hit
   update.pc          := commit_pc_bundle.startAddr
   update.meta        := commit_meta
@@ -1413,7 +1417,15 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   update.full_target := commit_target
   update.from_stage  := commit_stage
   update.spec_info   := commit_spec_meta
-  XSError(commit_valid && do_commit_fire && debug_cfi, "\ncommit cfi can be non c_commited\n")
+
+
+  when(do_commit && !do_commit_fire && !update_buffer_valid){
+    update_buffer_valid := true.B
+    update_buffer := update
+  }.elsewhen(do_commit_fire){
+    update_buffer_valid := false.B
+  }
+  // XSError(commit_valid && do_commit_fire && debug_cfi, "\ncommit cfi can be non c_commited\n")
   // XSError(commit_valid && do_commit && debug_cfi, "\ncommit cfi can be non c_commited\n")
 
   val commit_real_hit = commit_hit === h_hit
