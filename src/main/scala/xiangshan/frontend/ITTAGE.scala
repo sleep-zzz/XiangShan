@@ -447,7 +447,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
 
   val u_req_valid  = (updateValid || u_req_conflict_stall) && !(io.s1_fire(3) && s1_isIndirect) && u_write_ready
   val u_req_valid_reg = RegNext(u_req_valid)
-  val u_req_conflict = updateValid && io.s1_fire(3) && s1_isIndirect && u_write_ready
+  val u_req_conflict = updateValid && (io.s1_fire(3) && s1_isIndirect || !u_write_ready)
 
   //Read during updates
   val u_updateValid       = RegInit(false.B)
@@ -473,11 +473,8 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
 
   //when a conflict occurs, need storage the update data.
   //If a read request is sent during the update process，it need clean
-  when(u_req_conflict){
-    u_req_conflict_stall := true.B
-  }.elsewhen(u_req_valid){
-    u_req_conflict_stall := false.B
-  }
+  when(u_req_conflict)      { u_req_conflict_stall := true.B  }
+    .elsewhen(u_req_valid)  { u_req_conflict_stall := false.B }
   //For reading during updates, even if there are no conflicts, it is necessary to block FTQ and store the update information.
   //Release when it can be written
   when(updateValid){
@@ -489,15 +486,12 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   }.elsewhen(buffer_fire){
     buffer_valid := false.B
   }
-  buffer_fire := u_write_ready && buffer_valid && u_req_valid_reg
+  buffer_fire := buffer_valid && u_req_valid_reg
   // val buffer_fire = tables.map(_.io.update.ready).reduce(_&&_) && buffer_valid
   u_write_fire := u_updateValid && tables.map(_.io.update.ready).reduce(_&&_)
-  u_write_ready := u_write_fire || !u_updateValid
-  when(buffer_fire){
-    u_updateValid := true.B
-  }.elsewhen(u_write_fire){
-    u_updateValid := false.B
-  }
+  u_write_ready := (u_write_fire || !u_updateValid) && tables.map(_.io.update.ready).reduce(_&&_)
+  when(buffer_fire)         { u_updateValid := true.B  }
+    .elsewhen(u_write_fire) { u_updateValid := false.B }
   // Predict
   tables.map { t => {
       t.io.req.valid := io.s1_fire(3) && s1_isIndirect || u_req_valid
@@ -589,7 +583,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
       updateMask(provider)   := true.B
       updateUMask(provider)  := true.B
 
-      updateU(provider) := Mux(!u_altDiffers, u_providerU, !u_write_updateMisPred)
+      updateU(provider) := Mux(!u_altDiffers, u_providerU, u_providerTarget === updateRealTarget)
       updateCorrect(provider)  := u_providerTarget === updateRealTarget
       updateTarget(provider) := updateRealTarget
       updateOldTarget(provider) := u_providerTarget

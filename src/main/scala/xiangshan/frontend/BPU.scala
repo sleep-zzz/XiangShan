@@ -774,11 +774,8 @@ class Predictor(implicit p: Parameters) extends XSModule with HasBPUConst with H
     getHist(io.ftq_to_bpu.update.bits.spec_info.histPtr), io.ftq_to_bpu.update.valid)
 
   io.ftq_to_bpu.update.ready := predictors.io.update.valid || !predictors_valid
-  when(io.ftq_to_bpu.update.valid){
-    predictors_valid := true.B
-  }.elsewhen(predictors.io.update.valid){
-    predictors_valid := false.B
-  }
+  when(io.ftq_to_bpu.update.valid)        { predictors_valid := true.B  }
+    .elsewhen(predictors.io.update.valid) { predictors_valid := false.B }
 
   val redirect_dup = do_redirect_dup.map(_.bits)
   predictors.io.redirect := do_redirect_dup(0)

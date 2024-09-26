@@ -1346,11 +1346,8 @@ class Ftq(implicit p: Parameters) extends XSModule with HasCircularQueuePtrHelpe
   // val do_commit = RegNext(canCommit, init=false.B)
   val do_commit = RegInit(false.B)
   val do_commit_fire = do_commit && io.toBpu.update.ready
-  when(canCommit){
-    do_commit := true.B
-  }.elsewhen(do_commit_fire){
-    do_commit := false.B
-  }
+  when(canCommit)             { do_commit := true.B  }
+    .elsewhen(do_commit_fire) { do_commit := false.B }
   do_commit_ready := do_commit_fire || !do_commit
   when (canMoveCommPtr) {
     commPtr_write := commPtrPlus1
