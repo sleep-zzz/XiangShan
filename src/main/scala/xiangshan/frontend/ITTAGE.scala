@@ -576,18 +576,25 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   s2_providerU         := providerInfo.u
   s2_providerCtr       := providerInfo.ctr
   s2_altProviderCtr    := altProviderInfo.ctr
-  s2_providerTarget    := providerInfo.target
-  s2_altProviderTarget := altProviderInfo.target
+  s2_providerTarget    := providerCatTarget
+  s2_altProviderTarget := altproviderCatTarget
+  // s2_providerTarget    := providerInfo.target
+  // s2_altProviderTarget := altProviderInfo.target
 
   val resps_valid = s2_resps.map(w => w.valid).orR
 
-  // XSError((get_offset(providerInfo.target) =/= providerInfo.target_offset.offset) && provided, "ITTAGE providerInfo's target offset is not equal target lower!\n")
+
+  // XSError(RegNext((providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided) && !(providerInfo.target_offset.usePCRegion || !rTable.io.resp_hit(0)) ), "providerCatTarget is not providerTarget when not use providerInfo.target_offset.usePCRegion!\n")
+  // XSError(RegNext((providerCatTarget =/= providerInfo.target) && !(providerInfo.target_offset.usePCRegion || !rTable.io.resp_hit(0)) ), "providerCatTarget is not providerTarget when use RegionWay\n")
   // XSError((get_offset(altProviderInfo.target) =/= altProviderInfo.target_offset.offset) && altProvided, "ITTAGE altProvider's target offset is not equal target lower!\n")
 
-  XSPerfAccumulate("providerCatTarget_diff_providerTarget", (providerCatTarget =/= s2_providerTarget) && provided)
-  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget", (altproviderCatTarget =/= s2_altProviderTarget) && altProvided)
-  XSPerfAccumulate("providerCatTarget_diff_providerTarget_valids", (providerCatTarget =/= s2_providerTarget) && resps_valid)
-  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_valids", (altproviderCatTarget =/= s2_altProviderTarget) && resps_valid)
+  XSPerfAccumulate("providerCatTarget_diff_providerTarget", (providerCatTarget =/= providerInfo.target) && provided)
+  XSPerfAccumulate("providerCatTarget_diff_providerTarget_used", (providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided))
+  XSPerfAccumulate("providerCatTarget_diff_providerTarget_usePCRegion", (providerCatTarget =/= providerInfo.target) && provided  && providerInfo.target_offset.usePCRegion)
+
+  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget", (altproviderCatTarget =/= altProviderInfo.target) && altProvided)
+  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_used", (altproviderCatTarget =/= altProviderInfo.target) && !(provided && !(providerNull && altProvided)) && (altProvided && providerNull))
+  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_usePCRegion", (altproviderCatTarget =/= altProviderInfo.target) && altProvided && altProviderInfo.target_offset.usePCRegion)
 
   XSDebug(io.s2_fire(3), p"hit_taken_jalr:")
 
