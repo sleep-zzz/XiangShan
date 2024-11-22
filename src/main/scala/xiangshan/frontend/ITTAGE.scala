@@ -83,7 +83,7 @@ class ITTageOffset(implicit p: Parameters) extends ITTageBundle {
 
 class ITTageResp(implicit p: Parameters) extends ITTageBundle {
   val ctr    = UInt(ITTageCtrBits.W)
-  val u      = UInt(2.W)
+  val u      = UInt(ITTageUsBits.W)
   val target = UInt(VAddrBits.W)
   val target_offset = new ITTageOffset()
 }
@@ -193,8 +193,8 @@ class ITTageTable(
     val tag    = UInt(tagLen.W)
     val ctr    = UInt(ITTageCtrBits.W)
     val target = UInt(VAddrBits.W)
-    val useful = Bool()
     val target_offset = new ITTageOffset()
+    val useful = Bool() //Due to the bitMask the useful bit needs to be at the lowest bit
   }
 
   // Why need add instOffsetBits?
@@ -416,7 +416,8 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
 
   val regions             = RegInit(VecInit(Seq.fill(RegionNums)(0.U.asTypeOf(new RegionEntry()))))
   val replacer            = ReplacementPolicy.fromString("plru", RegionNums)
-  val replacer_touch_ways = Wire(Vec(RegionPorts + 1, Valid(UInt(log2Ceil(RegionNums).W))))
+  val replacer_touch_ways = Wire(Vec(1, Valid(UInt(log2Ceil(RegionNums).W))))
+  // val replacer_touch_ways = Wire(Vec(RegionPorts + 1, Valid(UInt(log2Ceil(RegionNums).W))))
 
   val valids = VecInit((0 until RegionNums).map( w => regions(w).valid))
   val valid  = WireInit(valids.andR)
@@ -424,6 +425,8 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val w_total_hits = VecInit((0 until RegionNums).map( w => (regions(w).region === io.write_region && regions(w).valid && io.write_valid)))
   val w_hit = w_total_hits.reduce(_||_)
   val w_pointer = Mux(w_hit, OHToUInt(w_total_hits), Mux(!valid, PriorityEncoder(~valids), replacer.way))
+  XSPerfAccumulate("Region_entry_replace", !w_hit && valid && io.write_valid)
+
   XSError(PopCount(w_total_hits) > 1.U, "region has multiple hits!\n")
 
   io.write_pointer := w_pointer
@@ -443,8 +446,8 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
 
     XSError(PopCount(u_total_hits) > 1.U, "region has multiple hits!\n")
 
-    replacer_touch_ways(i).valid :=  u_total_hits.reduce(_||_)
-    replacer_touch_ways(i).bits :=  OHToUInt(u_total_hits)
+    // replacer_touch_ways(i).valid :=  u_total_hits.reduce(_||_)
+    // replacer_touch_ways(i).bits :=  OHToUInt(u_total_hits)
   }
   //write
   when(io.write_valid) {
@@ -453,8 +456,10 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
     }
     regions(w_pointer).region  := io.write_region
   }
-  replacer_touch_ways(RegionPorts).valid := io.write_valid
-  replacer_touch_ways(RegionPorts).bits := w_pointer
+  replacer_touch_ways(0).valid := io.write_valid
+  replacer_touch_ways(0).bits := w_pointer
+  // replacer_touch_ways(RegionPorts).valid := io.write_valid
+  // replacer_touch_ways(RegionPorts).bits := w_pointer
   replacer.access(replacer_touch_ways)
 }
 
@@ -595,7 +600,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
 
 
   // XSError(RegNext((providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided) && !(providerInfo.target_offset.usePCRegion || !rTable.io.resp_hit(0))), "providerCatTarget is not providerTarget when not use providerInfo.target_offset.usePCRegion!\n")
-  // XSError(RegNext((providerCatTarget =/= providerInfo.target) && !(providerInfo.target_offset.usePCRegion || !rTable.io.resp_hit(0)) ), "providerCatTarget is not providerTarget when use RegionWay\n")
+  // XSError(RegNext((providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided) && !providerInfo.target_offset.usePCRegion && rTable.io.resp_hit(0)), "providerCatTarget is not providerTarget when use RegionWay\n")
   // XSError((get_offset(altProviderInfo.target) =/= altProviderInfo.target_offset.offset) && altProvided, "ITTAGE altProvider's target offset is not equal target lower!\n")
 
   XSPerfAccumulate("providerCatTarget_diff_providerTarget", (providerCatTarget =/= providerInfo.target) && provided)
@@ -612,7 +617,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget", (altproviderCatTarget =/= altProviderInfo.target) && altProvided)
   XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_used", (altproviderCatTarget =/= altProviderInfo.target) && !(provided && !(providerNull && altProvided)) && (altProvided && providerNull))
   XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_useRegion", (altproviderCatTarget =/= altProviderInfo.target) && altProvided && !altProviderInfo.target_offset.usePCRegion && rTable.io.resp_hit(1))
-  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_usePCRegion", (altproviderCatTarget =/= altProviderInfo.target) && altProvided && altProviderInfo.target_offset.usePCRegion)
+  XSPerfAccumulate("altproviderCatTarget_diff_altProviderTarget_usePCRegion", (altproviderCatTarget =/= altProviderInfo.target) && altProvided && !altProviderInfo.target_offset.usePCRegion && altProviderInfo.target_offset.usePCRegion)
 
   XSDebug(io.s2_fire(3), p"hit_taken_jalr:")
 
@@ -652,43 +657,38 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val updateRealTargetOffset = WireInit(0.U.asTypeOf(new ITTageOffset))
   updateRealTargetOffset.offset := get_offset(updateRealTarget)
   val updateRealUsePCRegion = updateRealTargetRegion === PCRegion
-  updateRealTargetOffset.usePCRegion := false.B
-  // updateRealTargetOffset.usePCRegion := updateRealUsePCRegion
-  rTable.io.write_valid := updateAlloc.reduce(_||_)
-  // rTable.io.write_valid := !updateRealUsePCRegion && updateAlloc.reduce(_||_)
+  updateRealTargetOffset.usePCRegion := updateRealUsePCRegion
+  // rTable.io.write_valid := updateAlloc.reduce(_||_)
+  rTable.io.write_valid := !updateRealUsePCRegion && updateAlloc.reduce(_||_)
   rTable.io.write_region := updateRealTargetRegion
   updateRealTargetOffset.pointer := rTable.io.write_pointer
 
-  XSPerfAccumulate("rTable_write_conuter", updateAlloc.reduce(_||_))
-  // XSPerfAccumulate("rTable_write_conuter", !updateRealUsePCRegion && updateAlloc.reduce(_||_))
+  // XSPerfAccumulate("rTable_write_conuter", updateAlloc.reduce(_||_))
+  XSPerfAccumulate("rTable_write_conuter", !updateRealUsePCRegion && updateAlloc.reduce(_||_))
 
   val metaProviderTargetRegion = get_region(updateMeta.providerTarget)
   val metaProviderTargetOffset = WireInit(0.U.asTypeOf(new ITTageOffset))
   val metaProviderUsePCRegion = WireInit(false.B)
-  val metaAltProviderTargetRegion = get_region(updateMeta.altProviderTarget)
-  val metaAltProviderTargetOffset = WireInit(0.U.asTypeOf(new ITTageOffset))
-  val metaAltProviderUsePCRegion = WireInit(false.B)
 
   metaProviderUsePCRegion := metaProviderTargetRegion === PCRegion
   metaProviderTargetOffset.offset := get_offset(updateMeta.providerTarget)
-  rTable.io.update_region(0) := metaAltProviderTargetRegion
+  rTable.io.update_region(0) := metaProviderTargetRegion
   metaProviderTargetOffset.pointer := rTable.io.update_pointer(0)
   metaProviderTargetOffset.usePCRegion := !rTable.io.update_hit(0)
-  XSPerfAccumulate("rTable_update0_hit_conuter", rTable.io.update_hit(0))
-  XSPerfAccumulate("rTable_update0_not_hit_conuter", !rTable.io.update_hit(0))
+  XSPerfAccumulate("rTable_update0_hit_conuter", rTable.io.update_hit(0) && updateValid)
+  XSPerfAccumulate("rTable_update0_not_hit_conuter", !rTable.io.update_hit(0) && updateValid)
 
-
+  val metaAltProviderTargetRegion = get_region(updateMeta.altProviderTarget)
+  val metaAltProviderTargetOffset = WireInit(0.U.asTypeOf(new ITTageOffset))
+  val metaAltProviderUsePCRegion = WireInit(false.B)
 
   metaAltProviderUsePCRegion := metaAltProviderTargetRegion === PCRegion
   metaAltProviderTargetOffset.offset := get_offset(updateMeta.altProviderTarget)
   rTable.io.update_region(1) := metaAltProviderTargetRegion
   metaAltProviderTargetOffset.pointer := rTable.io.update_pointer(1)
   metaAltProviderTargetOffset.usePCRegion := !rTable.io.update_hit(1)
-  XSPerfAccumulate("rTable_update1_hit_conuter", rTable.io.update_hit(1))
-  XSPerfAccumulate("rTable_update1_not_hit_conuter", !rTable.io.update_hit(1))
-
-
-
+  XSPerfAccumulate("rTable_update1_hit_conuter", rTable.io.update_hit(1) && updateValid)
+  XSPerfAccumulate("rTable_update1_not_hit_conuter", !rTable.io.update_hit(1) && updateValid)
 
   // Seq(updateRealTargetOffset, metaAltProviderTargetOffset, metaProviderTargetOffset).zipWithIndex.map{
   //   case (w,i) => {
@@ -783,6 +783,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   XSPerfAccumulate("ittage_reset_u", updateResetU)
   XSPerfAccumulate("ittage_used", io.s1_fire(0) && s1_isIndirect)
   XSPerfAccumulate("ittage_closed_due_to_uftb_info", io.s1_fire(0) && !s1_isIndirect)
+  XSPerfAccumulate("ittage_allocate", updateAlloc.reduce(_||_))
 
   def pred_perf(name:   String, cond: Bool) = XSPerfAccumulate(s"${name}_at_pred", cond && io.s2_fire(3))
   def commit_perf(name: String, cond: Bool) = XSPerfAccumulate(s"${name}_at_commit", cond && updateValid)
