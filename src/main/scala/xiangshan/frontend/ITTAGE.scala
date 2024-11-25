@@ -422,7 +422,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val valids = VecInit((0 until RegionNums).map( w => regions(w).valid))
   val valid  = WireInit(valids.andR)
   //write data
-  val w_total_hits = VecInit((0 until RegionNums).map( w => (regions(w).region === io.write_region && regions(w).valid && io.write_valid)))
+  val w_total_hits = VecInit((0 until RegionNums).map( w => (regions(w).region === io.write_region && regions(w).valid)))
   val w_hit = w_total_hits.reduce(_||_)
   val w_pointer = Mux(w_hit, OHToUInt(w_total_hits), Mux(!valid, PriorityEncoder(~valids), replacer.way))
   XSPerfAccumulate("Region_entry_replace", !w_hit && valid && io.write_valid)
@@ -600,7 +600,7 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
 
 
   // XSError(RegNext((providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided) && !(providerInfo.target_offset.usePCRegion || !rTable.io.resp_hit(0))), "providerCatTarget is not providerTarget when not use providerInfo.target_offset.usePCRegion!\n")
-  // XSError(RegNext((providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided) && !providerInfo.target_offset.usePCRegion && rTable.io.resp_hit(0)), "providerCatTarget is not providerTarget when use RegionWay\n")
+  XSError(RegNext((providerCatTarget =/= providerInfo.target) && provided && !(providerNull && altProvided) && !providerInfo.target_offset.usePCRegion && rTable.io.resp_hit(0)), "providerCatTarget is not providerTarget when use RegionWay\n")
   // XSError((get_offset(altProviderInfo.target) =/= altProviderInfo.target_offset.offset) && altProvided, "ITTAGE altProvider's target offset is not equal target lower!\n")
 
   XSPerfAccumulate("providerCatTarget_diff_providerTarget", (providerCatTarget =/= providerInfo.target) && provided)
@@ -657,8 +657,9 @@ class ITTage(implicit p: Parameters) extends BaseITTage {
   val updateRealTargetOffset = WireInit(0.U.asTypeOf(new ITTageOffset))
   updateRealTargetOffset.offset := get_offset(updateRealTarget)
   val updateRealUsePCRegion = updateRealTargetRegion === PCRegion
-  updateRealTargetOffset.usePCRegion := updateRealUsePCRegion
-  // rTable.io.write_valid := updateAlloc.reduce(_||_)
+  //If rTable is not written in Region, the pointer value will be invalid.
+  //At this time, it is necessary to raise usePCRegion.
+  updateRealTargetOffset.usePCRegion := updateRealUsePCRegion || !updateAlloc.reduce(_||_)
   rTable.io.write_valid := !updateRealUsePCRegion && updateAlloc.reduce(_||_)
   rTable.io.write_region := updateRealTargetRegion
   updateRealTargetOffset.pointer := rTable.io.write_pointer
