@@ -642,9 +642,9 @@ class Tage(implicit p: Parameters) extends BaseTage {
   val debug_pc_s2 = RegEnable(debug_pc_s1, io.s1_fire(1))
 
   //for counter
-  val table_not_select = Wire(Vec(numBr, Bool()))
-  val table_not_select_flag = Reg(Vec(numBr, Bool()))
-  val table_not_select_clean = Wire(Vec(numBr, Bool()))
+  val table_not_select = Wire(Vec(TageNTables, Vec(numBr, Bool())))
+  val table_not_select_flag = Reg(Vec(TageNTables, Vec(numBr, Bool())))
+  val table_not_select_clean = Wire(Vec(TageNTables, Vec(numBr, Bool())))
 
   val s1_provideds     = Wire(Vec(numBr, Bool()))
   val s1_providers     = Wire(Vec(numBr, UInt(log2Ceil(TageNTables).W)))
@@ -937,9 +937,9 @@ class Tage(implicit p: Parameters) extends BaseTage {
       }
     }
     for( t <- 0 until TageNTables){
-      table_not_select(i) := t.U =/= providerInfo.tableIdx && s1_resps(t).map(_.valid).reduce(_ || _)
-      table_not_select_flag(i) := table_not_select(i)
-      table_not_select_clean(i) := table_not_select_flag(i) && !table_not_select(i)
+      table_not_select(t)(i) := t.U =/= providerInfo.tableIdx && s1_per_br_resp(t).valid
+      table_not_select_flag(t)(i) := table_not_select(t)(i)
+      table_not_select_clean(t)(i) := table_not_select_flag(t)(i) && !table_not_select(t)(i)
     }
     XSPerfAccumulate(f"tage_bank_${i}_update_allocate_failure", needToAllocate && !canAllocate)
     XSPerfAccumulate(f"tage_bank_${i}_update_allocate_success", needToAllocate && canAllocate)
@@ -952,7 +952,15 @@ class Tage(implicit p: Parameters) extends BaseTage {
   }
 
   for( t <- 0 until TageNTables){
-    XSPerfAccumulate(f"tage_table_${t}_continuous_misses", table_not_select_flag.reduce(_ || _) && table_not_select.reduce(_ || _), table_not_select_clean.reduce(_ || _))
+    val miss_counter = RegInit(0.U(64.W))
+    val miss = table_not_select_flag(t).reduce(_ || _) && table_not_select(t).reduce(_ || _)
+    val miss_counter_clean = table_not_select_clean(t).reduce(_ || _)
+    when(miss){
+      miss_counter := miss_counter + 1.U
+    }.elsewhen(miss_counter_clean){
+      miss_counter := 0.U
+    }
+    XSPerfHistogram(f"tage_table_${t}_continuous_miss", miss_counter, miss_counter_clean, 100, 5000, 200)
   }
 
   val realWens = updateMask.transpose.map(v => v.reduce(_ | _))
