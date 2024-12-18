@@ -641,6 +641,11 @@ class Tage(implicit p: Parameters) extends BaseTage {
   val debug_pc_s1 = RegEnable(s0_pc_dup(1), io.s0_fire(1))
   val debug_pc_s2 = RegEnable(debug_pc_s1, io.s1_fire(1))
 
+  //for counter
+  val table_not_select = Wire(Vec(numBr, Bool()))
+  val table_not_select_flag = Reg(Vec(numBr, Bool()))
+  val table_not_select_clean = Wire(Vec(numBr, Bool()))
+
   val s1_provideds     = Wire(Vec(numBr, Bool()))
   val s1_providers     = Wire(Vec(numBr, UInt(log2Ceil(TageNTables).W)))
   val s1_providerResps = Wire(Vec(numBr, new TageResp))
@@ -931,6 +936,11 @@ class Tage(implicit p: Parameters) extends BaseTage {
         updateResetU(i)              := true.B
       }
     }
+    for( t <- 0 until TageNTables){
+      table_not_select(i) := t.U =/= providerInfo.tableIdx && s1_resps(t).map(_.valid).reduce(_ || _)
+      table_not_select_flag(i) := table_not_select(i)
+      table_not_select_clean(i) := table_not_select_flag(i) && !table_not_select(i)
+    }
     XSPerfAccumulate(f"tage_bank_${i}_update_allocate_failure", needToAllocate && !canAllocate)
     XSPerfAccumulate(f"tage_bank_${i}_update_allocate_success", needToAllocate && canAllocate)
     XSPerfAccumulate(s"tage_bank_${i}_mispred", hasUpdate && updateMispred)
@@ -939,6 +949,10 @@ class Tage(implicit p: Parameters) extends BaseTage {
       XSPerfAccumulate(f"tage_bank_${i}_tick_inc_${t}", needToAllocate && tickInc && tickIncVal === t.U)
       XSPerfAccumulate(f"tage_bank_${i}_tick_dec_${t}", needToAllocate && tickDec && tickDecVal === t.U)
     }
+  }
+
+  for( t <- 0 until TageNTables){
+    XSPerfAccumulate(f"tage_table_${t}_continuous_misses", table_not_select_flag.reduce(_ || _) && table_not_select.reduce(_ || _), table_not_select_clean.reduce(_ || _))
   }
 
   val realWens = updateMask.transpose.map(v => v.reduce(_ | _))
