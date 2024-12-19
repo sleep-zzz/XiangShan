@@ -937,7 +937,8 @@ class Tage(implicit p: Parameters) extends BaseTage {
       }
     }
     for( t <- 0 until TageNTables){
-      table_not_select(t)(i) := t.U =/= providerInfo.tableIdx && s1_per_br_resp(t).valid
+      // If the table t is hit but not used or missed, it can be closed
+      table_not_select(t)(i) := t.U =/= providerInfo.tableIdx
       table_not_select_flag(t)(i) := table_not_select(t)(i)
       table_not_select_clean(t)(i) := table_not_select_flag(t)(i) && !table_not_select(t)(i)
     }
@@ -960,7 +961,7 @@ class Tage(implicit p: Parameters) extends BaseTage {
     }.elsewhen(miss_counter_clean){
       miss_counter := 0.U
     }
-    XSPerfHistogram(f"tage_table_${t}_continuous_miss", miss_counter, miss_counter_clean, 100, 5000, 200)
+    XSPerfHistogram(f"tage_table_${t}_continuous_miss", miss_counter, miss_counter_clean && miss_counter > 100.U, 100, 5000, 200)
   }
 
   val realWens = updateMask.transpose.map(v => v.reduce(_ | _))
