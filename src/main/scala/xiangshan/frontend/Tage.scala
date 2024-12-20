@@ -938,7 +938,10 @@ class Tage(implicit p: Parameters) extends BaseTage {
     }
     for( t <- 0 until TageNTables){
       // If the table t is hit but not used or missed, it can be closed
-      table_not_select(t)(i) := t.U =/= providerInfo.tableIdx
+      /*
+      used: resp.valid && t.U === provider.tableIdx
+      */
+      table_not_select(t)(i) := t.U =/= providerInfo.tableIdx || !s1_per_br_resp(t).valid
       table_not_select_flag(t)(i) := table_not_select(t)(i)
       table_not_select_clean(t)(i) := table_not_select_flag(t)(i) && !table_not_select(t)(i)
     }
@@ -953,15 +956,15 @@ class Tage(implicit p: Parameters) extends BaseTage {
   }
 
   for( t <- 0 until TageNTables){
-    val miss_counter = RegInit(0.U(64.W))
-    val miss = table_not_select_flag(t).reduce(_ || _) && table_not_select(t).reduce(_ || _)
-    val miss_counter_clean = table_not_select_clean(t).reduce(_ || _)
-    when(miss){
-      miss_counter := miss_counter + 1.U
-    }.elsewhen(miss_counter_clean){
-      miss_counter := 0.U
+    val not_select_counter = RegInit(0.U(64.W))
+    val not_select = table_not_select_flag(t).reduce(_ && _) && table_not_select(t).reduce(_ && _)
+    val not_select_counter_clean = table_not_select_clean(t).reduce(_ || _)
+    when(not_select_counter_clean){
+      not_select_counter := 0.U
+    }.elsewhen(not_select){
+      not_select_counter := not_select_counter + 1.U
     }
-    XSPerfHistogram(f"tage_table_${t}_continuous_miss", miss_counter, miss_counter_clean && miss_counter > 100.U, 100, 5000, 200)
+    XSPerfHistogram(f"tage_table_${t}_continuous_miss", not_select_counter, not_select_counter_clean && not_select_counter > 100.U, 100, 5000, 200)
   }
 
   val realWens = updateMask.transpose.map(v => v.reduce(_ | _))
