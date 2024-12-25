@@ -65,6 +65,7 @@ trait TageParams extends HasBPUConst with HasXSParameter {
   def get_phy_br_idx(unhashed_idx: UInt, br_lidx: Int) = get_unshuffle_bits(unhashed_idx) ^ br_lidx.U(log2Ceil(numBr).W)
   def get_lgc_br_idx(unhashed_idx: UInt, br_pidx: UInt) = get_unshuffle_bits(unhashed_idx) ^ br_pidx
 
+  def TABLES_CLOSE_THRESHOLD = Seq(300, 300, 300, 300)
 }
 
 trait HasFoldedHistory {
@@ -607,10 +608,14 @@ class Tage(implicit p: Parameters) extends BaseTage {
 
   val resp_meta          = Wire(new TageMeta)
   override val meta_size = resp_meta.getWidth
+
+  val s0_tables_req_closed = RegInit(VecInit(Seq.fill(TABLES_CLOSE_THRESHOLD.size)(false.B)))
+  dontTouch(s0_tables_req_closed)
+
   val tables = TageTableInfos.zipWithIndex.map {
     case ((nRows, histLen, tagLen), i) => {
       val t = Module(new TageTable(nRows, histLen, tagLen, i))
-      t.io.req.valid            := io.s0_fire(1)
+      t.io.req.valid            := io.s0_fire(1) && !s0_tables_req_closed(i)
       t.io.req.bits.pc          := s0_pc_dup(1)
       t.io.req.bits.folded_hist := io.in.bits.folded_hist(1)
       t.io.req.bits.ghist       := io.in.bits.ghist
@@ -642,9 +647,9 @@ class Tage(implicit p: Parameters) extends BaseTage {
   val debug_pc_s2 = RegEnable(debug_pc_s1, io.s1_fire(1))
 
   //for counter
-  val table_not_select = Wire(Vec(TageNTables, Vec(numBr, Bool())))
-  val table_not_select_flag = Reg(Vec(TageNTables, Vec(numBr, Bool())))
-  val table_not_select_clean = Wire(Vec(TageNTables, Vec(numBr, Bool())))
+  val table_unused = Wire(Vec(TageNTables, Vec(numBr, Bool())))
+  val table_unused_flag = Reg(Vec(TageNTables, Vec(numBr, Bool())))
+  val table_unused_clean = Wire(Vec(TageNTables, Vec(numBr, Bool())))
 
   val s1_provideds     = Wire(Vec(numBr, Bool()))
   val s1_providers     = Wire(Vec(numBr, UInt(log2Ceil(TageNTables).W)))
@@ -941,9 +946,9 @@ class Tage(implicit p: Parameters) extends BaseTage {
       /*
       used: resp.valid && t.U === provider.tableIdx
       */
-      table_not_select(t)(i) := t.U =/= providerInfo.tableIdx || !s1_per_br_resp(t).valid
-      table_not_select_flag(t)(i) := table_not_select(t)(i)
-      table_not_select_clean(t)(i) := table_not_select_flag(t)(i) && !table_not_select(t)(i)
+      table_unused(t)(i) := t.U =/= providerInfo.tableIdx || !s1_per_br_resp(t).valid
+      table_unused_flag(t)(i) := table_unused(t)(i)
+      table_unused_clean(t)(i) := table_unused_flag(t)(i) && !table_unused(t)(i)
     }
     XSPerfAccumulate(f"tage_bank_${i}_update_allocate_failure", needToAllocate && !canAllocate)
     XSPerfAccumulate(f"tage_bank_${i}_update_allocate_success", needToAllocate && canAllocate)
@@ -956,15 +961,29 @@ class Tage(implicit p: Parameters) extends BaseTage {
   }
 
   for( t <- 0 until TageNTables){
-    val not_select_counter = RegInit(0.U(64.W))
-    val not_select = table_not_select_flag(t).reduce(_ && _) && table_not_select(t).reduce(_ && _)
-    val not_select_counter_clean = table_not_select_clean(t).reduce(_ || _)
-    when(not_select_counter_clean){
-      not_select_counter := 0.U
-    }.elsewhen(not_select){
-      not_select_counter := not_select_counter + 1.U
+    require(TABLES_CLOSE_THRESHOLD.size == TageNTables)
+    val unused_counter = RegInit(0.U((log2Ceil(TABLES_CLOSE_THRESHOLD(t)) + 1).W))
+    val unused = table_unused_flag(t).reduce(_ && _) && table_unused(t).reduce(_ && _)
+    val unused_counter_clean = table_unused_clean(t).reduce(_ || _)
+    when(unused_counter_clean){
+      unused_counter := 0.U
+    }.elsewhen(unused){
+      unused_counter := unused_counter + 1.U
     }
-    XSPerfHistogram(f"tage_table_${t}_continuous_miss", not_select_counter, not_select_counter_clean && not_select_counter > 100.U, 100, 5000, 200)
+
+    when(unused_counter >= TABLES_CLOSE_THRESHOLD(t).asUInt && io.s0_fire(0)) {
+      s0_tables_req_closed(t) := true.B
+    }
+
+    val reopen = s0_tables_req_closed(t) && io.redirect.valid
+    when(reopen) {
+      s0_tables_req_closed(t) := false.B
+      unused_counter := 0.U
+    }
+
+    XSPerfAccumulate(f"tage_table_${t}_close_cycle", s0_tables_req_closed(t) && io.s0_fire(0))
+    XSPerfAccumulate(f"tage_table_${t}_open_cycle", !s0_tables_req_closed(t) && io.s0_fire(0))
+    XSPerfHistogram(f"tage_table_${t}_continuous_miss", unused_counter, unused_counter_clean && unused_counter > 100.U, 100, 5000, 200)
   }
 
   val realWens = updateMask.transpose.map(v => v.reduce(_ | _))
