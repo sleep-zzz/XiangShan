@@ -615,7 +615,7 @@ class Tage(implicit p: Parameters) extends BaseTage {
   val tables = TageTableInfos.zipWithIndex.map {
     case ((nRows, histLen, tagLen), i) => {
       val t = Module(new TageTable(nRows, histLen, tagLen, i))
-      t.io.req.valid            := io.s0_fire(1)
+      t.io.req.valid            := io.s0_fire(1) && !s0_tables_req_closed(i)
       t.io.req.bits.pc          := s0_pc_dup(1)
       t.io.req.bits.folded_hist := io.in.bits.folded_hist(1)
       t.io.req.bits.ghist       := io.in.bits.ghist
