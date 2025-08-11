@@ -19,6 +19,7 @@ import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config.Parameters
 import utility.ReplacementPolicy
+import xiangshan.frontend.bpu.PlruStateGen
 import xiangshan.frontend.bpu.SaturateCounter
 
 class MicroBtbReplacer(implicit p: Parameters) extends MicroBtbModule {
@@ -50,4 +51,13 @@ class MicroBtbReplacer(implicit p: Parameters) extends MicroBtbModule {
 
   /* *** perf *** */
   io.perf.replaceNotUseful := notUseful
+
+  // test PlruStateGen
+  private val plruState    = RegInit(0.U((NumEntries - 1).W))
+  private val plruStateReg = RegInit(0.U((NumEntries - 1).W))
+  private val plruStateGen = new PlruStateGen(NumEntries, accessSize = 2)
+  plruStateGen.io.stateIn := plruState
+  plruStateGen.access(Seq(io.predTouch, io.trainTouch))
+  plruState := plruStateGen.io.nextState
+
 }
