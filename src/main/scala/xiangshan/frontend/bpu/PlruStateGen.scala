@@ -22,7 +22,7 @@ import freechips.rocketchip.util.UIntToAugmentedUInt
 import freechips.rocketchip.util.property.cover
 import xiangshan.backend.fu.NewCSR.CSRDefines.PrivMode.U
 
-class PlruStateGen(n_ways: Int, accessSize: Int = 1) extends Module {
+class PlruStateGen(val n_ways: Int, val accessSize: Int = 1) extends Module {
   // Pseudo-LRU tree algorithm: https://en.wikipedia.org/wiki/Pseudo-LRU#Tree-PLRU
   //
   //
@@ -47,33 +47,11 @@ class PlruStateGen(n_ways: Int, accessSize: Int = 1) extends Module {
 
   class PlruStateGenIO extends Bundle {
     val stateIn:    UInt             = Input(UInt((n_ways - 1).W))
-    val touchWays:  Seq[Valid[UInt]] = Input(Vec(accessSize, Valid(UInt(log2Ceil(n_ways).W))))
+    val touchWays:  Vec[Valid[UInt]] = Input(Vec(accessSize, Valid(UInt(log2Ceil(n_ways).W))))
     val nextState:  UInt             = Output(UInt((n_ways - 1).W))
     val replaceWay: UInt             = Output(UInt(log2Ceil(n_ways).W))
   }
   val io: PlruStateGenIO = IO(new PlruStateGenIO)
-
-  def nBits = n_ways - 1
-//   def perSet = true
-//   protected val state_reg = if (nBits == 0) Reg(UInt(0.W)) else RegInit(0.U(nBits.W))
-  def state_read = WireDefault(io.stateIn)
-
-  io.nextState := state_reg
-
-  io.replaceWay := get_replace_way(state_read, n_ways)
-
-  protected val state_reg = if (nBits == 0) Reg(UInt(0.W)) else WireInit(0.U(nBits.W))
-
-  def access(touch_way: UInt): Unit =
-    io.nextState := get_next_state(state_read, touch_way)
-  def access(touch_ways: Seq[Valid[UInt]]): Unit = {
-    when(touch_ways.map(_.valid).orR) {
-      state_reg := get_next_state(state_reg, touch_ways)
-    }
-    for (i <- 1 until touch_ways.size) {
-      cover(PopCount(touch_ways.map(_.valid)) === i.U, s"PLRU_UpdateCount$i", s"PLRU Update $i simultaneous")
-    }
-  }
 
   /**
     * Computes the next PLRU (Pseudo-Least Recently Used) state based on current state and access patterns.
@@ -204,6 +182,30 @@ class PlruStateGen(n_ways: Int, accessSize: Int = 1) extends Module {
   def get_replace_way(state: UInt): UInt = get_replace_way(state, n_ways)
 
   def way = get_replace_way(state_read)
+
+  def nBits = n_ways - 1
+//   def perSet = true
+//   protected val state_reg = if (nBits == 0) Reg(UInt(0.W)) else RegInit(0.U(nBits.W))
+  def state_read: UInt = if (nBits == 0) 0.U else io.stateIn
+
+  io.replaceWay := get_replace_way(state_read, n_ways)
+
+  protected val state_reg = if (nBits == 0) Wire(UInt(0.W)) else WireInit(0.U(nBits.W))
+
+  def access(touch_way: UInt): Unit =
+    state_reg := get_next_state(state_read, touch_way)
+
+  def access(touch_ways: Seq[Valid[UInt]]): Unit = {
+    when(touch_ways.map(_.valid).orR) {
+      state_reg := get_next_state(state_read, touch_ways)
+    }
+    for (i <- 1 until touch_ways.size) {
+      cover(PopCount(touch_ways.map(_.valid)) === i.U, s"PLRU_UpdateCount$i", s"PLRU Update $i simultaneous")
+    }
+  }
+  access(io.touchWays.toSeq)
+
+  io.nextState := state_reg
 //   def miss = access(way)
   def hit = {}
 }

@@ -53,11 +53,26 @@ class MicroBtbReplacer(implicit p: Parameters) extends MicroBtbModule {
   io.perf.replaceNotUseful := notUseful
 
   // test PlruStateGen
-  private val plruState    = RegInit(0.U((NumEntries - 1).W))
-  private val plruStateReg = RegInit(0.U((NumEntries - 1).W))
-  private val plruStateGen = new PlruStateGen(NumEntries, accessSize = 2)
-  plruStateGen.io.stateIn := plruState
-  plruStateGen.access(Seq(io.predTouch, io.trainTouch))
-  plruState := plruStateGen.io.nextState
+  private val plruState      = RegInit(0.U((NumEntries - 1).W))
+  private val plruReplaceWay = Wire(UInt(log2Up(NumEntries).W))
+  private val plruStateGen   = Module(new PlruStateGen(NumEntries, accessSize = 2))
+  private val plruUpdate     = io.predTouch.valid || io.trainTouch.valid
 
+  plruStateGen.io.stateIn   := plruState
+  plruStateGen.io.touchWays := VecInit(Seq(io.predTouch, io.trainTouch))
+  plruState                 := Mux(plruUpdate, plruStateGen.io.nextState, plruState)
+  plruReplaceWay            := plruStateGen.io.replaceWay
+
+  private val diffCounter = RegInit(0.U(32.W))
+  when(RegNext(plruUpdate) && plruReplaceWay =/= replacer.way) {
+    diffCounter := diffCounter + 1.U
+  }
+
+  private val replacerWay   = replacer.way
+  private val replacerState = replacer.state_read
+  dontTouch(plruReplaceWay)
+  dontTouch(diffCounter)
+  dontTouch(replacerWay)
+  dontTouch(replacerState)
+  assert(PopCount(diffCounter) < 1.U, "PlruStateGen and ReplacementPolicy should produce the same replace way")
 }
