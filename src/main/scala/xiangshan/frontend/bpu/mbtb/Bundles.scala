@@ -52,6 +52,11 @@ class MainBtbSramWriteReq(implicit p: Parameters) extends WriteReqBundle with Ha
   override def tag: Option[UInt] = Some(entry.tag) // use entry's tag directly
 }
 
+class MainBtbReplacerStateEntry(implicit p: Parameters) extends MainBtbBundle {
+  val state: UInt = UInt((NumWay - 1).W) // PLRU state for replacement policy
+  // val usefulCnt: UInt = UInt(UsefulCntWidth.W) // Useful counter for the entry
+}
+
 class MainBtbMeta(implicit p: Parameters) extends MainBtbBundle {
   val valid              = Bool()
   val hitMask            = Vec(NumAlignBanks * NumWay, Bool())
