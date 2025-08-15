@@ -58,7 +58,10 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
     Module(new WriteBuffer(new MainBtbSramWriteReq, WriteBufferSize, NumWay, pipe = true))
   }
 
-  private val states = RegInit(VecInit(Seq.fill(NumSets)(0.U.asTypeOf(new MainBtbReplacerStateEntry()))))
+  // private val states = RegInit(VecInit(Seq.fill(NumSets)(0.U.asTypeOf(new MainBtbReplacerStateEntry()))))
+  private val statesBanks = Seq.tabulate(NumAlignBanks) { alignIdx =>
+    RegInit(VecInit(Seq.fill(NumSets)(0.U.asTypeOf(new MainBtbReplacerStateEntry()))))
+  }
 
   sramBanks.map(_.map(_.map { m =>
     m.io.r.req.valid       := false.B
@@ -176,11 +179,12 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
   )
   private val s2_stateEntries: Vec[MainBtbReplacerStateEntry] =
     WireInit(VecInit(Seq.fill(NumAlignBanks)(0.U.asTypeOf(new MainBtbReplacerStateEntry))))
-  s2_replacerSetIdxVec zip s2_stateEntries foreach { case (setIdx, state) =>
+  s2_replacerSetIdxVec zip statesBanks zip s2_stateEntries foreach { case ((setIdx, states), state) =>
     state := states(setIdx)
   }
   private val s2_stateTouchs: Vec[Vec[Valid[UInt]]] =
     Wire(Vec(NumAlignBanks, Vec(NumWay, Valid(UInt(log2Up(NumWay).W)))))
+  // FIXME: this is not a good way to do this, but it works for now
   for (alignIdx <- 0 until NumAlignBanks; wayIdx <- 0 until NumWay) {
     s2_stateTouchs(alignIdx)(wayIdx).valid := s2_fire && s2_hitMask(alignIdx * NumWay + wayIdx)
     s2_stateTouchs(alignIdx)(wayIdx).bits  := wayIdx.U
@@ -198,15 +202,13 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
     case ((((gen, state), touchs), nextState)) =>
       gen.io.stateIn   := state.state
       gen.io.touchWays := touchs.toSeq
-      // replaceWay       := gen.io.replaceWay
-      nextState.state := Mux(s2_fire, gen.io.nextState, state.state)
+      nextState.state  := Mux(s2_fire, gen.io.nextState, state.state)
   }
-  when(s2_fire && s2_hitMask.reduce(_ || _)) {
-    s2_replacerSetIdxVec zip s2_nextState foreach { case (setIdx, nextState) =>
-      states(setIdx) := nextState
-    }
+  s2_replacerSetIdxVec zip s2_nextState zip statesBanks foreach { case ((setIdx, nextState), states) =>
+    states(setIdx) := nextState
   }
 
+  dontTouch(s2_replacerSetIdxVec)
   dontTouch(s2_stateEntries)
   dontTouch(s2_nextState)
 
@@ -277,28 +279,52 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
   private val t1_nextReplacerSetIdx = t1_thisReplacerSetIdx + 1.U
   private val t1_replacerSetIdxVec: Vec[UInt] =
     VecInit.tabulate(NumAlignBanks)(bankIdx => Mux(bankIdx.U < t1_alignBankIdx, t1_nextSetIdx, t1_thisSetIdx))
-
-  private val t1_writeSetIdx: UInt = MuxCase(
-    0.U,
+  private val t1_stateEntries: Vec[MainBtbReplacerStateEntry] =
+    WireInit(VecInit(Seq.fill(NumAlignBanks)(0.U.asTypeOf(new MainBtbReplacerStateEntry))))
+  t1_replacerSetIdxVec zip statesBanks zip t1_stateEntries foreach { case ((setIdx, states), state) =>
+    state := states(setIdx)
+  }
+  private val t1_stateEntry: MainBtbReplacerStateEntry = MuxCase(
+    0.U.asTypeOf(new MainBtbReplacerStateEntry),
     Seq.tabulate(NumAlignBanks)(bankIdx =>
-      t1_writeAlignBankMask(bankIdx) -> t1_replacerSetIdxVec(bankIdx)
+      t1_writeAlignBankMask(bankIdx) -> t1_stateEntries(bankIdx)
     )
   )
-  private val t1_stateEntry    = states(t1_writeSetIdx)
   private val writeReplacerGen = Module(new PlruStateGen(NumWay, accessSize = 1))
   private val t1_touchWay      = Wire(Valid(UInt(log2Up(NumWay).W)))
-  writeReplacerGen.io.stateIn := t1_stateEntry.state
-  private val t1_replaceWay = writeReplacerGen.io.replaceWay
+  private val t1_replaceWay    = Wire(UInt(log2Up(NumWay).W))
+  private val t1_nextState: MainBtbReplacerStateEntry = WireInit(0.U.asTypeOf(new MainBtbReplacerStateEntry))
+  writeReplacerGen.io.stateIn   := t1_stateEntry.state
+  t1_replaceWay                 := writeReplacerGen.io.replaceWay
+  t1_nextState.state            := Mux(t1_writeValid, writeReplacerGen.io.nextState, t1_stateEntry.state)
+  t1_touchWay.valid             := t1_writeValid
+  t1_touchWay.bits              := t1_replaceWay
+  writeReplacerGen.io.touchWays := Seq(t1_touchWay)
+
+  statesBanks zip t1_writeAlignBankMask zip t1_replacerSetIdxVec foreach { case ((states, alignBankEnable), setIdx) =>
+    val writeState = t1_writeValid && alignBankEnable
+    states(setIdx) := Mux(writeState, t1_nextState, states(setIdx))
+  }
+  // writeReplacerGen zip t1_stateEntries zip t1_replaceWay zip t1_nextState zip t1_writeAlignBankMask foreach {
+  //   case (((((gen, state), replaceWay), nextState), alignBankEnable)) =>
+  //     val touchWay: Valid[UInt] = Valid(UInt(log2Up(NumWay).W))
+  //     touchWay.valid   := t1_writeValid && alignBankEnable
+  //     touchWay.bits    := gen.io.replaceWay
+  //     gen.io.stateIn   := state.state
+  //     gen.io.touchWays := Seq(touchWay)
+  //     replaceWay       := gen.io.replaceWay
+  //     nextState.state  := Mux(s2_fire, gen.io.nextState, state.state)
+  // }
   require(
     t1_replaceWay.getWidth == log2Ceil(NumWay),
     s"Replace way width mismatch: ${t1_replaceWay.getWidth} != ${log2Ceil(NumWay)}"
   )
-  t1_touchWay.valid             := t1_writeValid
-  t1_touchWay.bits              := t1_replaceWay
-  writeReplacerGen.io.touchWays := Seq(t1_touchWay)
-  when(t1_writeValid) {
-    states(t1_writeSetIdx).state := writeReplacerGen.io.nextState
-  }
+  // t1_touchWay.valid             := t1_writeValid
+  // t1_touchWay.bits              := t1_replaceWay
+  // writeReplacerGen.io.touchWays := Seq(t1_touchWay)
+  // when(t1_writeValid) {
+  //   states(t1_writeSetIdx).state := writeReplacerGen.io.nextState
+  // }
   private val t1_writeWayMask = UIntToOH(t1_replaceWay)
   require(t1_writeWayMask.getWidth == NumWay, s"Write way mask width mismatch: ${t1_writeWayMask.getWidth} != $NumWay")
 
