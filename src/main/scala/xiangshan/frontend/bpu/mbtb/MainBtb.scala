@@ -163,18 +163,20 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
       getFullTarget(s2_startVAddr, e.targetLowerBits, Some(e.targetCarry))
     ) // FIXME: parameterize target carry
 
-  private val s2_thisSetIdx   = getSetIndex(s2_startVAddr)
-  private val s2_nextSetIdx   = s2_thisSetIdx + 1.U
-  private val s2_alignBankIdx = getAlignBankIndex(s2_startVAddr)
-  private val s2_setIdxVec: Vec[UInt] =
-    VecInit.tabulate(NumAlignBanks)(bankIdx => Mux(bankIdx.U < s2_alignBankIdx, s2_nextSetIdx, s2_thisSetIdx))
+  private val s2_thisReplacerSetIdx = getReplacerSetIndex(s2_startVAddr)
+  private val s2_nextReplacerSetIdx = s2_thisReplacerSetIdx + 1.U
+  private val s2_alignBankIdx       = getAlignBankIndex(s2_startVAddr)
+  private val s2_replacerSetIdxVec: Vec[UInt] =
+    VecInit.tabulate(NumAlignBanks)(bankIdx =>
+      Mux(bankIdx.U < s2_alignBankIdx, s2_nextReplacerSetIdx, s2_thisReplacerSetIdx)
+    )
   require(
-    s2_thisSetIdx.getWidth == SetIdxLen,
-    s"S2 stage set index width mismatch: ${s2_thisSetIdx.getWidth} != $SetIdxLen"
+    s2_thisReplacerSetIdx.getWidth == SetIdxLen,
+    s"S2 stage set index width mismatch: ${s2_thisReplacerSetIdx.getWidth} != $SetIdxLen"
   )
   private val s2_stateEntries: Vec[MainBtbReplacerStateEntry] =
     WireInit(VecInit(Seq.fill(NumAlignBanks)(0.U.asTypeOf(new MainBtbReplacerStateEntry))))
-  s2_setIdxVec zip s2_stateEntries foreach { case (setIdx, state) =>
+  s2_replacerSetIdxVec zip s2_stateEntries foreach { case (setIdx, state) =>
     state := states(setIdx)
   }
   private val s2_stateTouchs: Vec[Vec[Valid[UInt]]] =
@@ -200,7 +202,7 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
       nextState.state := Mux(s2_fire, gen.io.nextState, state.state)
   }
   when(s2_fire && s2_hitMask.reduce(_ || _)) {
-    s2_setIdxVec zip s2_nextState foreach { case (setIdx, nextState) =>
+    s2_replacerSetIdxVec zip s2_nextState foreach { case (setIdx, nextState) =>
       states(setIdx) := nextState
     }
   }
@@ -267,27 +269,38 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
   t1_writeEntry.attribute       := t1_train.attribute
   t1_writeEntry.stronglyBiased  := false.B  // FIXME
   t1_writeEntry.replaceCnt      := DontCare // FIXME:
-  private val t1_writeWayMask = UIntToOH(t1_LFSR(log2Ceil(NumWay) - 1, 0))
+  // private val t1_writeWayMask = UIntToOH(t1_LFSR(log2Ceil(NumWay) - 1, 0))
   private val t1_writeAlignBankMask = VecInit.tabulate(NumAlignBanks)(bankIdx =>
     bankIdx.U === (t1_train.cfiPosition.asBools.last + t1_alignBankIdx) // FIXME: not working for NumAlignBanks > 2
   )
+  private val t1_thisReplacerSetIdx = getReplacerSetIndex(t1_train.startVAddr)
+  private val t1_nextReplacerSetIdx = t1_thisReplacerSetIdx + 1.U
+  private val t1_replacerSetIdxVec: Vec[UInt] =
+    VecInit.tabulate(NumAlignBanks)(bankIdx => Mux(bankIdx.U < t1_alignBankIdx, t1_nextSetIdx, t1_thisSetIdx))
 
   private val t1_writeSetIdx: UInt = MuxCase(
     0.U,
     Seq.tabulate(NumAlignBanks)(bankIdx =>
-      t1_writeAlignBankMask(bankIdx) -> t1_setIdxVec(bankIdx)
+      t1_writeAlignBankMask(bankIdx) -> t1_replacerSetIdxVec(bankIdx)
     )
   )
-  // Mux(t1_writeAlignBankMask(0) === 1.U, t1_setIdxVec(0), t1_setIdxVec(1))
   private val t1_stateEntry    = states(t1_writeSetIdx)
   private val writeReplacerGen = Module(new PlruStateGen(NumWay, accessSize = 1))
   private val t1_touchWay      = Wire(Valid(UInt(log2Up(NumWay).W)))
   writeReplacerGen.io.stateIn := t1_stateEntry.state
   private val t1_replaceWay = writeReplacerGen.io.replaceWay
-  t1_touchWay.valid             := t1_train_valid
+  require(
+    t1_replaceWay.getWidth == log2Ceil(NumWay),
+    s"Replace way width mismatch: ${t1_replaceWay.getWidth} != ${log2Ceil(NumWay)}"
+  )
+  t1_touchWay.valid             := t1_writeValid
   t1_touchWay.bits              := t1_replaceWay
   writeReplacerGen.io.touchWays := Seq(t1_touchWay)
-  states(t1_writeSetIdx)        := writeReplacerGen.io.nextState
+  when(t1_writeValid) {
+    states(t1_writeSetIdx).state := writeReplacerGen.io.nextState
+  }
+  private val t1_writeWayMask = UIntToOH(t1_replaceWay)
+  require(t1_writeWayMask.getWidth == NumWay, s"Write way mask width mismatch: ${t1_writeWayMask.getWidth} != $NumWay")
 
   // Write to SRAM
   writeBuffers zip t1_setIdxVec zip t1_writeAlignBankMask foreach {
