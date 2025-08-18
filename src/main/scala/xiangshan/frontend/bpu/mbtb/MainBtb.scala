@@ -201,7 +201,7 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
   plruStateGen zip s2_stateEntries zip s2_stateTouchs zip s2_nextState foreach {
     case ((((gen, state), touchs), nextState)) =>
       gen.io.stateIn   := state.state
-      gen.io.touchWays := touchs.toSeq
+      gen.io.touchWays := touchs
       nextState.state  := Mux(s2_fire, gen.io.nextState, state.state)
   }
   s2_replacerSetIdxVec zip s2_nextState zip statesBanks foreach { case ((setIdx, nextState), states) =>
@@ -278,7 +278,9 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
   private val t1_thisReplacerSetIdx = getReplacerSetIndex(t1_train.startVAddr)
   private val t1_nextReplacerSetIdx = t1_thisReplacerSetIdx + 1.U
   private val t1_replacerSetIdxVec: Vec[UInt] =
-    VecInit.tabulate(NumAlignBanks)(bankIdx => Mux(bankIdx.U < t1_alignBankIdx, t1_nextSetIdx, t1_thisSetIdx))
+    VecInit.tabulate(NumAlignBanks)(bankIdx =>
+      Mux(bankIdx.U < t1_alignBankIdx, t1_nextReplacerSetIdx, t1_thisReplacerSetIdx)
+    )
   private val t1_stateEntries: Vec[MainBtbReplacerStateEntry] =
     WireInit(VecInit(Seq.fill(NumAlignBanks)(0.U.asTypeOf(new MainBtbReplacerStateEntry))))
   t1_replacerSetIdxVec zip statesBanks zip t1_stateEntries foreach { case ((setIdx, states), state) =>
