@@ -52,9 +52,18 @@ class MainBtbSramWriteReq(implicit p: Parameters) extends WriteReqBundle with Ha
   override def tag: Option[UInt] = Some(entry.tag) // use entry's tag directly
 }
 
-class MainBtbReplacerStateEntry(implicit p: Parameters) extends MainBtbBundle {
-  val state: UInt = UInt((NumWay - 1).W) // PLRU state for replacement policy
-  // val usefulCnt: UInt = UInt(UsefulCntWidth.W) // Useful counter for the entry
+class ReplacerIO(implicit p: Parameters) extends MainBtbBundle {
+  // prediction hit update Replacer
+  val predictionSetIndxVec: Vec[UInt] = Input(Vec(NumAlignBanks, UInt(SetIdxLen.W)))
+  val predictionHitMask:    Vec[Bool] = Input(Vec(NumAlignBanks, Bool()))
+  val predictionTouchWays: Vec[Vec[Valid[UInt]]] =
+    Input(Vec(NumAlignBanks, Vec(NumWay, Valid(UInt(log2Up(NumWay).W)))))
+
+  // training hit update Replacer
+  val trainWriteValid:    Bool      = Input(Bool())
+  val trainSetIndx:       UInt      = Input(UInt(SetIdxLen.W))
+  val trainAlignBankMask: Vec[Bool] = Input(Vec(NumAlignBanks, Bool()))
+  val victimWayIdx:       UInt      = Output(UInt(log2Up(NumWay).W))
 }
 
 class MainBtbMeta(implicit p: Parameters) extends MainBtbBundle {
