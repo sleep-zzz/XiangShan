@@ -21,6 +21,7 @@ import org.chipsalliance.cde.config.Parameters
 import xiangshan.XSBundle
 import xiangshan.XSModule
 
+// Independent replacer state management enables finer-grained clock gating
 class ReplacerState(val NumSets: Int, val NumWays: Int)(implicit p: Parameters) extends XSModule {
   class ReplacerStateIO(implicit p: Parameters) extends XSBundle {
     // Read and write for the state of the prediction table
