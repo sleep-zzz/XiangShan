@@ -164,7 +164,7 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
 
   private val s2_alignBankIdx       = getAlignBankIndex(s2_startVAddr)
   private val s2_thisReplacerSetIdx = getReplacerSetIndex(s2_startVAddr)
-  private val s2_nextReplacerSetIdx = s2_thisReplacerSetIdx + 1.U
+  private val s2_nextReplacerSetIdx = s2_thisReplacerSetIdx + 2.U
   private val s2_replacerSetIdxVec: Vec[UInt] = VecInit.tabulate(NumAlignBanks)(bankIdx =>
     Mux(bankIdx.U < s2_alignBankIdx, s2_nextReplacerSetIdx, s2_thisReplacerSetIdx)
   )
@@ -247,7 +247,7 @@ class MainBtb(implicit p: Parameters) extends BasePredictor with HasMainBtbParam
     bankIdx.U === (t1_train.cfiPosition.asBools.last + t1_alignBankIdx) // FIXME: not working for NumAlignBanks > 2
   )
   private val t1_thisReplacerSetIdx = getReplacerSetIndex(t1_train.startVAddr)
-  private val t1_nextReplacerSetIdx = t1_thisReplacerSetIdx + 1.U
+  private val t1_nextReplacerSetIdx = t1_thisReplacerSetIdx + 2.U
   private val t1_replacerSetIdxVec: Vec[UInt] = VecInit.tabulate(NumAlignBanks)(bankIdx =>
     Mux(bankIdx.U < t1_alignBankIdx, t1_nextReplacerSetIdx, t1_thisReplacerSetIdx)
   )

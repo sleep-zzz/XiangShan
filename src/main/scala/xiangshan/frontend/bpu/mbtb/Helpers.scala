@@ -25,7 +25,7 @@ trait Helpers extends HasMainBtbParameters with HasXSParameter with TargetFixHel
     pc(SetIdxLen + InternalBankIdxLen + FetchBlockSizeWidth - 1, InternalBankIdxLen + FetchBlockSizeWidth)
 
   def getReplacerSetIndex(pc: PrunedAddr): UInt =
-    pc(SetIdxLen + FetchBlockSizeWidth - 1, FetchBlockSizeWidth)
+    pc(SetIdxLen + FetchBlockAlignWidth - 1, FetchBlockAlignWidth)
 
   def getAlignBankIndex(pc: PrunedAddr): UInt =
     pc(FetchBlockSizeWidth - 1, FetchBlockAlignWidth)
