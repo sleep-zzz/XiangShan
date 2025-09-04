@@ -19,4 +19,14 @@ import chisel3._
 import chisel3.util._
 import xiangshan.HasXSParameter
 
-trait Helpers extends HasScParameters {}
+trait Helpers extends HasScParameters {
+  def signedSatUpdate(old: SInt, len: Int, taken: Bool): SInt = {
+    val oldSatTaken    = old === ((1 << (len - 1)) - 1).S
+    val oldSatNotTaken = old === (-(1 << (len - 1))).S
+    Mux(
+      oldSatTaken && taken,
+      ((1 << (len - 1)) - 1).S,
+      Mux(oldSatNotTaken && !taken, (-(1 << (len - 1))).S, Mux(taken, old + 1.S, old - 1.S))
+    )
+  }
+}

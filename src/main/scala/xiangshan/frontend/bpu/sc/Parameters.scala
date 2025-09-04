@@ -17,12 +17,24 @@ package xiangshan.frontend.bpu.sc
 
 import chisel3.util._
 import xiangshan.frontend.bpu.HasBpuParameters
+import xiangshan.frontend.bpu.ScTableInfo
 
 case class ScParameters(
-    // TODO
+    TableInfos: Seq[ScTableInfo] = Seq(
+      new ScTableInfo(512, 0),
+      new ScTableInfo(512, 4),
+      new ScTableInfo(512, 10),
+      new ScTableInfo(512, 16)
+    ),
+    ScCtrBits: Int = 6,
+    NumWays:   Int = 2
 ) {}
 
 trait HasScParameters extends HasBpuParameters {
-  def scParameters: ScParameters = bpuParameters.scParameters
+  def scParameters: ScParameters     = bpuParameters.scParameters
+  def ScCtrBits:    Int              = scParameters.ScCtrBits
+  def TableInfos:   Seq[ScTableInfo] = scParameters.TableInfos
+  def NumTables:    Int              = TableInfos.length
+  def NumWays:      Int              = scParameters.NumWays
   // TODO
 }
