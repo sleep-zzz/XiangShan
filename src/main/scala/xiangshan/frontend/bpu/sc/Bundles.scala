@@ -20,9 +20,8 @@ import chisel3.util._
 import org.chipsalliance.cde.config.Parameters
 import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.BasePredictorIO
+import xiangshan.frontend.bpu.mbtb.MainBtbResult
 import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
-
-class ScIO(implicit p: Parameters) extends BasePredictorIO {}
 
 class ScEntry(implicit p: Parameters) extends ScBundle {
   val valid: Bool = Bool()
@@ -37,28 +36,21 @@ class ScThresholdEntry(implicit p: Parameters) extends ScBundle {
   val ctrs:  UInt = UInt(thresholdCtrWidth.W)
 }
 
-// class ScPredTableReq(implicit p: Parameters) extends ScBundle {
-//   val pc:         PrunedAddr            = PrunedAddr(VAddrBits)
-//   val foldedHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
-// }
-// class ScPredTableResp(val ctrBits: Int = 6)(implicit p: Parameters) extends ScBundle {
-//   val percsum: SInt = SInt(ctrBits.W)
-// }
-
-// class ScWeightReq(implicit p: Parameters) extends ScBundle {
-//   val pc: PrunedAddr = PrunedAddr(VAddrBits)
-// }
-// class ScWeighResp(val ctrBits: Int = 6)(implicit p: Parameters) extends ScBundle {
-//   val weight: ScWeightEntry = new ScWeightEntry()
-// }
-
 class ScTableUpdate(val ctrBits: Int = 6)(implicit p: Parameters) extends ScBundle {
-  val pc:         PrunedAddr            = PrunedAddr(VAddrBits)
-  val foldedHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
-  val oldCtrs:    SInt                  = SInt(ctrBits.W)
-  val takens:     Bool                  = Bool()
+  val pc:             PrunedAddr            = PrunedAddr(VAddrBits)
+  val foldedPathHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
+  val oldCtrs:        SInt                  = SInt(ctrBits.W)
+  val takens:         Bool                  = Bool()
 }
 class ScMeta(val ntables: Int)(implicit p: Parameters) extends ScBundle with HasScParameters {
   val totalSum:   SInt = SInt(ctrWidth.W) // TODO: width maby not enough
   val totalThres: UInt = UInt(thresholdCtrWidth.W)
+}
+
+class ScIO(implicit p: Parameters) extends BasePredictorIO {
+  val mbtbResult:     MainBtbResult         = Input(new MainBtbResult)
+  val takenMask:      Vec[Bool]             = Output(Vec(MainBtbResultNumEntries, Bool()))
+  val foldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
+  val meta:           ScMeta                = Output(new ScMeta(NumTables))
+  val update:         ScTableUpdate         = Input(new ScTableUpdate(ctrBits = ctrWidth))
 }

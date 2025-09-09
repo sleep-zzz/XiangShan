@@ -53,7 +53,7 @@ trait HasBpuParameters extends HasFrontendParameters {
 
   def PhrHistoryLength: Int = frontendParameters.getPhrHistoryLength
 
-  def NumBtbResultEntries: Int = bpuParameters.mbtbParameters.NumWay * bpuParameters.mbtbParameters.NumAlignBanks
+  def MainBtbResultNumEntries: Int = bpuParameters.mbtbParameters.NumAlignBanks * bpuParameters.mbtbParameters.NumWay
 
   // phr history
   def AllFoldedHistoryInfo: Set[FoldedHistoryInfo] =
