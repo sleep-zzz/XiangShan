@@ -26,15 +26,19 @@ case class ScParameters(
       new ScTableInfo(512, 10),
       new ScTableInfo(512, 16)
     ),
-    ScCtrBits: Int = 6,
-    NumWays:   Int = 2
+    ctrWidth:          Int = 6,
+    weightCtrWidth:    Int = 6,
+    thresholdCtrWidth: Int = 8,
+    NumWays:           Int = 2
 ) {}
 
 trait HasScParameters extends HasBpuParameters {
-  def scParameters: ScParameters     = bpuParameters.scParameters
-  def ScCtrBits:    Int              = scParameters.ScCtrBits
-  def TableInfos:   Seq[ScTableInfo] = scParameters.TableInfos
-  def NumTables:    Int              = TableInfos.length
-  def NumWays:      Int              = scParameters.NumWays
+  def scParameters:      ScParameters     = bpuParameters.scParameters
+  def ctrWidth:          Int              = scParameters.ctrWidth
+  def weightCtrWidth:    Int              = scParameters.weightCtrWidth
+  def thresholdCtrWidth: Int              = scParameters.thresholdCtrWidth
+  def TableInfos:        Seq[ScTableInfo] = scParameters.TableInfos
+  def NumTables:         Int              = TableInfos.length
+  def NumWays:           Int              = scParameters.NumWays
   // TODO
 }
