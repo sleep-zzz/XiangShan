@@ -29,7 +29,10 @@ case class ScParameters(
     ctrWidth:          Int = 6,
     weightCtrWidth:    Int = 6,
     thresholdCtrWidth: Int = 8,
-    NumWays:           Int = 2
+    NumWays:           Int = 8,
+    NumTables:         Int = 2,
+    WriteBufferSize:   Int = 4,
+    TagWidth:          Int = 12
 ) {}
 
 trait HasScParameters extends HasBpuParameters {
@@ -40,5 +43,7 @@ trait HasScParameters extends HasBpuParameters {
   def TableInfos:        Seq[ScTableInfo] = scParameters.TableInfos
   def NumTables:         Int              = TableInfos.length
   def NumWays:           Int              = scParameters.NumWays
+  def WriteBufferSize:   Int              = scParameters.WriteBufferSize
+  def TagWidth:          Int              = scParameters.TagWidth
   // TODO
 }

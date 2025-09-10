@@ -29,4 +29,6 @@ trait Helpers extends HasScParameters {
       Mux(oldSatNotTaken && !taken, (-(1 << (len - 1))).S, Mux(taken, old + 1.S, old - 1.S))
     )
   }
+  def getTag(pc: PrunedAddr): UInt =
+    pc(TagWidth + FetchBlockSizeWidth - 1, FetchBlockSizeWidth)
 }
