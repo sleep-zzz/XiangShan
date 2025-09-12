@@ -18,12 +18,119 @@ package xiangshan.frontend.bpu.sc
 import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config.Parameters
+import scala.math.min
 import utility.XSPerfAccumulate
+import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.BasePredictor
+import xiangshan.frontend.bpu.BasePredictorIO
+import xiangshan.frontend.bpu.FoldedHistoryInfo
+import xiangshan.frontend.bpu.mbtb.MainBtbResult
+import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
 
 /**
  * This module is the implementation of the Statistical Corrector.
  */
 class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with Helpers {
+
+  class ScIO(implicit p: Parameters) extends BasePredictorIO with HasScParameters {
+    val mbtbResult:          MainBtbResult         = Input(new MainBtbResult)
+    val takenMask:           Vec[Bool]             = Output(Vec(NumBtbResultEntries, Bool()))
+    val foldedPathHist:      PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
+    val trainFoldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
+    val meta:                ScMeta                = Output(new ScMeta())
+  }
   val io: ScIO = IO(new ScIO)
+
+  private val pathTable =
+    PathTableInfos.map(tableInfo => Module(new ScPathTable(tableInfo.Size, tableInfo.HistoryLength)))
+
+  private val scThreshold = VecInit.fill(NumWays)(0.U.asTypeOf(new ScThresholdEntry()))
+
+  /*
+   *  predict pipeline stage 0
+   */
+  private val s0_fire       = io.stageCtrl.s0_fire && io.enable
+  private val s0_startVAddr = io.startVAddr
+
+  private val s0_idx: Seq[UInt] = PathTableInfos.map(info =>
+    getIdx(
+      s0_startVAddr,
+      new FoldedHistoryInfo(info.HistoryLength, min(info.HistoryLength, log2Ceil(info.Size / NumWays))),
+      io.foldedPathHist,
+      info.Size / NumWays
+    )
+  )
+
+  pathTable.zip(s0_idx).foreach { case (table, idx) =>
+    table.io.valid  := s0_fire
+    table.io.setIdx := idx
+  }
+  /*
+   *  predict pipeline stage 1
+   *  calculate eatch ctr's percsum
+   */
+  private val s1_fire       = io.stageCtrl.s1_fire && io.enable
+  private val s1_startVAddr = RegEnable(io.startVAddr, s0_fire)
+  private val s1_idx        = s0_idx.map(RegEnable(_, s0_fire))
+  private val s1_resp: Seq[Vec[ScEntry]] = pathTable.map(_.io.resp)
+  // private val s1_rawPathEntries: Vec[ScEntry]      = VecInit(pathTable.map(_.io.resp).flatMap(_.toSeq))
+  // private val s1_pathPercsum:    Vec[SInt]         = VecInit(s1_rawPathEntries.map(entry => getPercsum(entry.ctrs)))
+
+  private val s1_pathPercsum: Vec[Vec[SInt]] = VecInit(s1_resp.map(entries =>
+    VecInit(entries.map(entry => getPercsum(entry.ctrs.value)))
+  ))
+
+  /*
+   *  predict pipeline stage 2
+   *  match entries and calculate final percSum
+   */
+
+  private val s2_fire       = io.stageCtrl.s2_fire && io.enable
+  private val s2_startVAddr = RegEnable(s1_startVAddr, s1_fire)
+  // private val s2_rawPathEntries: Vec[ScEntry] = RegEnable(s1_rawPathEntries, s1_fire)
+  private val s2_pathPercsum: Vec[Vec[SInt]] = VecInit(s1_pathPercsum.map(ps => VecInit(ps.map(RegEnable(_, s1_fire)))))
+
+  // filter out branches that behind the fetch block start address
+  private val s2_mbtbHitMask = io.mbtbResult.hitMask.zip(io.mbtbResult.positions).map {
+    case (hit, position) =>
+      hit && position >= s2_startVAddr(FetchBlockSizeWidth - 1, 1)
+  }
+  private val s2_mbtbPositions  = io.mbtbResult.positions
+  private val s2_mbtbAttributes = io.mbtbResult.attributes
+  private val totalPercsum: Vec[SInt] = WireInit(VecInit.fill(NumWays)(0.S(ctrWidth.W)))
+  private val totalHit:     Vec[Bool] = WireInit(VecInit.fill(NumWays)(false.B))
+  require(NumWays == s2_mbtbHitMask.length, s"NumWays $NumWays != s2_mbtbHitMask.length ${s2_mbtbHitMask.length}")
+  s2_mbtbHitMask.zip(s2_mbtbAttributes).zip(s2_mbtbPositions).zipWithIndex.map {
+    case (((hit, attr), pos), i) =>
+      when(hit && attr.isConditional) {
+        val pathIdx = pos(log2Ceil(NumWays) - 1, 0)
+        s2_pathPercsum.map(v => totalPercsum(i) := v(pathIdx) +& totalPercsum(i))
+        totalHit(i) := true.B
+      }
+  }
+
+  private val totalThres = scThreshold.map(entry => entry.ctrs.value >> 3)
+
+  private val useScPred = Wire(Vec(NumWays, Bool()))
+  useScPred.zip(totalPercsum).zip(totalThres).zip(totalHit).map {
+    case (((u, sum), thres), hit) =>
+      when(hit && (sum > thres.asSInt)) {
+        u := true.B
+      }
+  }
+
+  /*
+   *  train pipeline stage 1
+   */
+  private val t1_trainValid = RegEnable(io.train.valid, io.enable)
+  private val t1_train      = RegEnable(io.train.bits, io.train.valid)
+  private val t1_trainIdx = PathTableInfos.map(info =>
+    getIdx(
+      t1_train.startVAddr,
+      new FoldedHistoryInfo(info.HistoryLength, min(info.HistoryLength, log2Ceil(info.Size / NumWays))),
+      io.trainFoldedPathHist,
+      info.Size / NumWays
+    )
+  )
+
 }

@@ -20,16 +20,19 @@ import xiangshan.frontend.bpu.HasBpuParameters
 import xiangshan.frontend.bpu.ScTableInfo
 
 case class ScParameters(
+    PathTableInfos: Seq[ScTableInfo] = Seq(
+      new ScTableInfo(1024, 8),
+      new ScTableInfo(1024, 16)
+    ),
     TableInfos: Seq[ScTableInfo] = Seq(
-      new ScTableInfo(512, 0),
-      new ScTableInfo(512, 4),
-      new ScTableInfo(512, 10),
-      new ScTableInfo(512, 16)
+      new ScTableInfo(1024, 0),
+      new ScTableInfo(1024, 4),
+      new ScTableInfo(1024, 10),
+      new ScTableInfo(1024, 16)
     ),
     ctrWidth:          Int = 6,
     weightCtrWidth:    Int = 6,
     thresholdCtrWidth: Int = 8,
-    NumWays:           Int = 8,
     NumTables:         Int = 2,
     WriteBufferSize:   Int = 4,
     TagWidth:          Int = 12
@@ -41,8 +44,9 @@ trait HasScParameters extends HasBpuParameters {
   def weightCtrWidth:    Int              = scParameters.weightCtrWidth
   def thresholdCtrWidth: Int              = scParameters.thresholdCtrWidth
   def TableInfos:        Seq[ScTableInfo] = scParameters.TableInfos
-  def NumTables:         Int              = TableInfos.length
-  def NumWays:           Int              = scParameters.NumWays
+  def PathTableInfos:    Seq[ScTableInfo] = scParameters.PathTableInfos
+  def NumTables:         Int              = PathTableInfos.length
+  def NumWays:           Int              = NumBtbResultEntries
   def WriteBufferSize:   Int              = scParameters.WriteBufferSize
   def TagWidth:          Int              = scParameters.TagWidth
   // TODO

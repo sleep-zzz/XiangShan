@@ -19,48 +19,38 @@ import chisel3._
 import chisel3.util._
 import org.chipsalliance.cde.config.Parameters
 import xiangshan.frontend.PrunedAddr
-import xiangshan.frontend.bpu.BasePredictorIO
 import xiangshan.frontend.bpu.SaturateCounter
+import xiangshan.frontend.bpu.SignedSaturateCounter
 import xiangshan.frontend.bpu.WriteReqBundle
-import xiangshan.frontend.bpu.mbtb.MainBtbResult
 import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
 
 class ScEntry(implicit p: Parameters) extends ScBundle {
-  val valid: Bool = Bool()
-  val tag:   UInt = UInt(TagWidth.W)
-  val ctrs:  SInt = SInt(ctrWidth.W)
+  val ctrs: SignedSaturateCounter = new SignedSaturateCounter(ctrWidth)
 }
 class ScWeightEntry(implicit p: Parameters) extends ScBundle {
-  val valid: Bool = Bool()
-  val ctrs:  SInt = SInt(weightCtrWidth.W)
+  val valid: Bool                  = Bool()
+  val ctrs:  SignedSaturateCounter = new SignedSaturateCounter(weightCtrWidth)
 }
 class ScThresholdEntry(implicit p: Parameters) extends ScBundle {
-  val valid: Bool = Bool()
-  val ctrs:  UInt = UInt(thresholdCtrWidth.W)
+  val valid: Bool            = Bool()
+  val ctrs:  SaturateCounter = new SaturateCounter(thresholdCtrWidth)
 }
 
-class PathTableSramWriteReq extends WriteReqBundle {
-  val setIdx:       UInt         = UInt(log2Ceil(numSets / NumWays).W)
-  val wayMask:      UInt         = UInt(log2Ceil(NumWays).W)
-  val entry:        ScEntry      = new ScEntry()
-  override def tag: Option[UInt] = Some(entry.tag) // use entry's tag directly
+class PathTableSramWriteReq(val numSets: Int)(implicit p: Parameters) extends WriteReqBundle with HasScParameters {
+  val setIdx: UInt    = UInt(log2Ceil(numSets / NumWays).W)
+  val wayIdx: UInt    = UInt(log2Ceil(NumWays).W)
+  val entry:  ScEntry = new ScEntry()
+  // override def tag: Option[UInt] = Some(entry.tag) // use entry's tag directly
 }
-class ScTableUpdate(implicit p: Parameters) extends ScBundle {
-  val pc:             PrunedAddr            = PrunedAddr(VAddrBits)
-  val foldedPathHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
-  val way:            UInt                  = UInt(log2Ceil(NumWays).W)
-  val oldCtrs:        ScEntry               = new ScEntry()
-  val takens:         Bool                  = Bool()
+class PathTableTrain(val numSets: Int)(implicit p: Parameters) extends ScBundle {
+  val valid:  Bool    = Bool()
+  val setIdx: UInt    = UInt(log2Ceil(numSets / NumWays).W)
+  val wayIdx: UInt    = UInt(log2Ceil(NumWays).W)
+  val entry:  ScEntry = new ScEntry()
+  // val pc:             PrunedAddr            = PrunedAddr(VAddrBits)
+  // val foldedPathHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
 }
-class ScMeta(val ntables: Int)(implicit p: Parameters) extends ScBundle with HasScParameters {
+class ScMeta(implicit p: Parameters) extends ScBundle with HasScParameters {
   val totalSum:   SInt = SInt(ctrWidth.W) // TODO: width maby not enough
   val totalThres: UInt = UInt(thresholdCtrWidth.W)
-}
-
-class ScIO(implicit p: Parameters) extends BasePredictorIO with HasScParameters {
-  val mbtbResult:     MainBtbResult         = Input(new MainBtbResult)
-  val takenMask:      Vec[Bool]             = Output(Vec(MainBtbResultNumEntries, Bool()))
-  val foldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
-  val meta:           ScMeta                = Output(new ScMeta(NumTables))
-  val update:         ScTableUpdate         = Input(new ScTableUpdate())
 }

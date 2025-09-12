@@ -91,11 +91,11 @@ class ScTableInfo(
   def asTuple: (Int, Int) =
     (Size, HistoryLength)
 
-  def getFoldedHistoryInfoSet(tagWidth: Int): Set[FoldedHistoryInfo] = {
+  def getFoldedHistoryInfoSet(numWays: Int, tagWidth: Int): Set[FoldedHistoryInfo] = {
     require(tagWidth > 0, "tagWidth must be > 0")
     if (HistoryLength > 0)
       Set(
-        new FoldedHistoryInfo(HistoryLength, min(HistoryLength, log2Ceil(Size)))
+        new FoldedHistoryInfo(HistoryLength, min(HistoryLength, log2Ceil(Size / numWays)))
       )
     else
       Set[FoldedHistoryInfo]()
