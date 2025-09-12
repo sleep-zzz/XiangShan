@@ -26,6 +26,8 @@ import xiangshan.frontend.bpu.mbtb.MainBtbMeta
 import xiangshan.frontend.bpu.phr.PhrPtr
 import xiangshan.frontend.bpu.ras.RasInternalMeta
 import xiangshan.frontend.bpu.ras.RasMeta
+import xiangshan.frontend.bpu.sc.ScMeta
+import xiangshan.frontend.bpu.tage.TageMeta
 
 /* *** public const & type *** */
 class BranchAttribute extends Bundle {

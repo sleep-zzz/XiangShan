@@ -45,6 +45,7 @@ trait HasScParameters extends HasBpuParameters {
   def thresholdCtrWidth: Int              = scParameters.thresholdCtrWidth
   def TableInfos:        Seq[ScTableInfo] = scParameters.TableInfos
   def PathTableInfos:    Seq[ScTableInfo] = scParameters.PathTableInfos
+  def PathTableSize:     Int              = PathTableInfos.length
   def NumTables:         Int              = PathTableInfos.length
   def NumWays:           Int              = NumBtbResultEntries
   def WriteBufferSize:   Int              = scParameters.WriteBufferSize

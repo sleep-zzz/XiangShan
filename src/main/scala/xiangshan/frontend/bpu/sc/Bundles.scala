@@ -51,6 +51,6 @@ class PathTableTrain(val numSets: Int)(implicit p: Parameters) extends ScBundle 
   // val foldedPathHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
 }
 class ScMeta(implicit p: Parameters) extends ScBundle with HasScParameters {
-  val totalSum:   SInt = SInt(ctrWidth.W) // TODO: width maby not enough
-  val totalThres: UInt = UInt(thresholdCtrWidth.W)
+  val scResp: Vec[ScEntry] = Vec(PathTableSize, new ScEntry())
+  val scPred: Vec[Bool]    = Vec(NumWays, Bool())
 }

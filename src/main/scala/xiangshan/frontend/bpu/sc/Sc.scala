@@ -84,9 +84,9 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
    *  predict pipeline stage 2
    *  match entries and calculate final percSum
    */
-
   private val s2_fire       = io.stageCtrl.s2_fire && io.enable
   private val s2_startVAddr = RegEnable(s1_startVAddr, s1_fire)
+  private val s2_resp       = VecInit(s1_resp.map(entries => VecInit(entries.map(RegEnable(_, s1_fire)))))
   // private val s2_rawPathEntries: Vec[ScEntry] = RegEnable(s1_rawPathEntries, s1_fire)
   private val s2_pathPercsum: Vec[Vec[SInt]] = VecInit(s1_pathPercsum.map(ps => VecInit(ps.map(RegEnable(_, s1_fire)))))
 
@@ -109,6 +109,8 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
       }
   }
 
+  private val s2_scPred: Vec[Bool] = VecInit(totalPercsum.map(_ > 0.S))
+
   private val totalThres = scThreshold.map(entry => entry.ctrs.value >> 3)
 
   private val useScPred = Wire(Vec(NumWays, Bool()))
@@ -118,6 +120,8 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
         u := true.B
       }
   }
+  io.meta.scResp := s2_resp
+  io.meta.scPred := s2_scPred
 
   /*
    *  train pipeline stage 1
@@ -132,5 +136,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
       info.Size / NumWays
     )
   )
+  private val t1_meta  = RegEnable(io.meta, io.train.valid)
+  private val t1_taken = t1_train.branches(0).bits.taken
 
 }
