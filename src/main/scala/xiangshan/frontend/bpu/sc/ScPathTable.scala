@@ -27,10 +27,9 @@ import xiangshan.frontend.bpu.WriteBuffer
 class ScPathTable(val numSets: Int, val histLen: Int)(implicit p: Parameters)
     extends ScModule with HasScParameters with Helpers {
   class ScPathTableIO extends ScBundle {
-    val valid:  Bool           = Input(Bool())
-    val setIdx: UInt           = Input(UInt(log2Ceil(numSets / NumWays).W))
-    val resp:   Vec[ScEntry]   = Output(Vec(NumWays, new ScEntry()))
-    val update: PathTableTrain = Input(new PathTableTrain(numSets))
+    val req:    DecoupledIO[UInt] = Flipped(Decoupled(UInt(log2Ceil(numSets / NumWays).W)))
+    val resp:   Vec[ScEntry]      = Output(Vec(NumWays, new ScEntry()))
+    val update: PathTableTrain    = Input(new PathTableTrain(numSets))
     // val pc:             PrunedAddr            = Input(PrunedAddr(VAddrBits))
     // val foldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
   }
@@ -56,8 +55,9 @@ class ScPathTable(val numSets: Int, val histLen: Int)(implicit p: Parameters)
     hasTag = true
   ))
 
-  sram.io.r.req.valid       := io.valid
-  sram.io.r.req.bits.setIdx := io.setIdx
+  sram.io.r.req.valid       := io.req.valid
+  sram.io.r.req.bits.setIdx := io.req.bits
+  io.req.ready              := sram.io.r.req.ready
 
   io.resp := sram.io.r.resp.data
 
@@ -70,7 +70,7 @@ class ScPathTable(val numSets: Int, val histLen: Int)(implicit p: Parameters)
   writeBuffer.io.write(0).bits.wayIdx := updateWay
   writeBuffer.io.write(0).bits.entry  := io.update.entry
 
-  writeBuffer.io.read(0).ready := sram.io.w.req.ready && !io.valid
+  writeBuffer.io.read(0).ready := sram.io.w.req.ready && !io.req.valid
   private val writeValid   = writeBuffer.io.read(0).valid
   private val writeSetIdx  = writeBuffer.io.read(0).bits.setIdx
   private val writeEntry   = writeBuffer.io.read(0).bits.entry

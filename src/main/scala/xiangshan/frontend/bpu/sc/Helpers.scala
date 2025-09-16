@@ -23,15 +23,10 @@ import xiangshan.frontend.bpu.FoldedHistoryInfo
 import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
 
 trait Helpers extends HasScParameters {
-  // def signedSatUpdate(old: SInt, len: Int, taken: Bool): SInt = {
-  //   val oldSatTaken    = old === ((1 << (len - 1)) - 1).S
-  //   val oldSatNotTaken = old === (-(1 << (len - 1))).S
-  //   Mux(
-  //     oldSatTaken && taken,
-  //     ((1 << (len - 1)) - 1).S,
-  //     Mux(oldSatNotTaken && !taken, (-(1 << (len - 1))).S, Mux(taken, old + 1.S, old - 1.S))
-  //   )
-  // }
+  def sign(x: SInt): Bool = x(x.getWidth - 1)
+  def pos(x:  SInt): Bool = !sign(x)
+  def neg(x:  SInt): Bool = sign(x)
+
   def getTag(pc: PrunedAddr): UInt =
     pc(TagWidth + FetchBlockSizeWidth - 1, FetchBlockSizeWidth)
 
@@ -46,4 +41,10 @@ trait Helpers extends HasScParameters {
   def getPercsum(arr: SInt): SInt =
     (arr * 2.S) +& 1.S
 
+  def aboveThreshold(scSum: SInt, threshold: UInt): Bool = {
+    val signedThres = threshold.zext
+    val totalSum    = scSum
+    (scSum > signedThres) && pos(totalSum) ||
+    (scSum < -signedThres) && neg(totalSum)
+  }
 }

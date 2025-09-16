@@ -34,7 +34,6 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
 
   class ScIO(implicit p: Parameters) extends BasePredictorIO with HasScParameters {
     val mbtbResult:          MainBtbResult         = Input(new MainBtbResult)
-    val takenMask:           Vec[Bool]             = Output(Vec(NumBtbResultEntries, Bool()))
     val foldedPathHist:      PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
     val trainFoldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
     val meta:                ScMeta                = Output(new ScMeta())
@@ -44,13 +43,20 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val pathTable =
     PathTableInfos.map(tableInfo => Module(new ScPathTable(tableInfo.Size, tableInfo.HistoryLength)))
 
-  private val scThreshold = VecInit.fill(NumWays)(0.U.asTypeOf(new ScThresholdEntry()))
+  private val scThreshold = RegInit(VecInit.fill(NumWays)(0.U.asTypeOf(new ScThreshold())))
+
+  private val resetDone = RegInit(false.B)
+  when(pathTable.map(_.io.req.ready).reduce(_ && _)) {
+    resetDone := true.B
+  }
+  io.resetDone := resetDone
 
   /*
    *  predict pipeline stage 0
    */
-  private val s0_fire       = io.stageCtrl.s0_fire && io.enable
+  private val s0_fire       = Wire(Bool())
   private val s0_startVAddr = io.startVAddr
+  s0_fire := io.stageCtrl.s0_fire && io.enable
 
   private val s0_idx: Seq[UInt] = PathTableInfos.map(info =>
     getIdx(
@@ -62,8 +68,8 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   )
 
   pathTable.zip(s0_idx).foreach { case (table, idx) =>
-    table.io.valid  := s0_fire
-    table.io.setIdx := idx
+    table.io.req.valid := s0_fire
+    table.io.req.bits  := idx
   }
   /*
    *  predict pipeline stage 1
@@ -104,19 +110,21 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     case (((hit, attr), pos), i) =>
       when(hit && attr.isConditional) {
         val pathIdx = pos(log2Ceil(NumWays) - 1, 0)
-        s2_pathPercsum.map(v => totalPercsum(i) := v(pathIdx) +& totalPercsum(i))
-        totalHit(i) := true.B
+        totalPercsum(i) := s2_pathPercsum.map(v => v(pathIdx)).reduce(_ +& _)
+        totalHit(i)     := true.B
       }
   }
 
   private val s2_scPred: Vec[Bool] = VecInit(totalPercsum.map(_ > 0.S))
 
-  private val totalThres = scThreshold.map(entry => entry.ctrs.value >> 3)
+  private val totalThresholds  = scThreshold.map(entry => entry.thres)
+  private val updateThresholds = VecInit(totalThresholds.map(t => (t << 3) +& 21.U))
 
-  private val useScPred = Wire(Vec(NumWays, Bool()))
-  useScPred.zip(totalPercsum).zip(totalThres).zip(totalHit).map {
+  private val useScPred = WireInit(VecInit.fill(NumWays)(false.B))
+  useScPred.zip(totalPercsum).zip(totalThresholds).zip(totalHit).map {
     case (((u, sum), thres), hit) =>
-      when(hit && (sum > thres.asSInt)) {
+      val aboveThres = aboveThreshold(sum, thres)
+      when(hit && aboveThres) {
         u := true.B
       }
   }
@@ -138,5 +146,27 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   )
   private val t1_meta  = RegEnable(io.meta, io.train.valid)
   private val t1_taken = t1_train.branches(0).bits.taken
+
+  private val t1_writeValid =
+    t1_trainValid && t1_train.branches(0).valid && t1_train.branches(0).bits.attribute.isConditional
+  private val t1_oldCtrs = t1_meta.scResp
+  private val t1_newCtrs = WireInit(VecInit.fill(PathTableSize)(VecInit.fill(NumWays)(0.U.asTypeOf(new ScEntry()))))
+  private val t1_wayIdx  = t1_train.branches(0).bits.cfiPosition(log2Ceil(NumWays) - 1, 0)
+  t1_oldCtrs zip t1_newCtrs foreach {
+    case (oldEntry: Vec[ScEntry], newEntries: Vec[ScEntry]) =>
+      when(t1_writeValid) {
+        newEntries(t1_wayIdx).ctrs.value := oldEntry(t1_wayIdx).ctrs.getUpdate(t1_taken)
+      }.otherwise {
+        newEntries.map(_ := 0.U.asTypeOf(newEntries(0)))
+      }
+  }
+
+  pathTable zip t1_trainIdx zip t1_newCtrs foreach {
+    case ((table, idx), newEntries) =>
+      table.io.update.valid  := t1_writeValid
+      table.io.update.setIdx := idx
+      table.io.update.wayIdx := t1_wayIdx
+      table.io.update.entry  := newEntries(t1_wayIdx)
+  }
 
 }

@@ -108,7 +108,7 @@ class BpuCtrl extends Bundle {
   // s3 predictor enable
   val mbtbEnable:   Bool = Bool()
   val tageEnable:   Bool = Bool()
-  val scEnable:     Bool = Bool() // depends on tageEnable
+  val scEnable:     Bool = Bool()
   val ittageEnable: Bool = Bool()
   val rasEnable:    Bool = Bool()
 }
@@ -173,6 +173,8 @@ class BpuMeta(implicit p: Parameters) extends BpuBundle {
   val mbtb:   MainBtbMeta  = new MainBtbMeta
   val ras:    RasMeta      = new RasMeta
   val phr:    PhrPtr       = new PhrPtr
+  val tage:   TageMeta     = new TageMeta
+  val sc:     ScMeta       = new ScMeta
   val ittage: IttageMeta   = new IttageMeta
   // used for performance counter
   val perf_s3Prediction: Prediction = new Prediction

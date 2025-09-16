@@ -31,9 +31,46 @@ class ScWeightEntry(implicit p: Parameters) extends ScBundle {
   val valid: Bool                  = Bool()
   val ctrs:  SignedSaturateCounter = new SignedSaturateCounter(weightCtrWidth)
 }
-class ScThresholdEntry(implicit p: Parameters) extends ScBundle {
-  val valid: Bool            = Bool()
-  val ctrs:  SaturateCounter = new SaturateCounter(thresholdCtrWidth)
+// class ScThresholdEntry(implicit p: Parameters) extends ScBundle {
+//   val valid: Bool            = Bool()
+//   val ctrs:  SaturateCounter = new SaturateCounter(thresholdCtrWidth)
+// }
+class ScThreshold(implicit p: Parameters) extends ScBundle {
+  val ctr: SaturateCounter = new SaturateCounter(thresholdCtrWidth)
+  def satPos(ctr: UInt = this.ctr.value): Bool = ctr === ((1.U << thresholdCtrWidth) - 1.U)
+  def satNeg(ctr: UInt = this.ctr.value): Bool = ctr === 0.U
+  def neutralVal: UInt = (1 << (thresholdCtrWidth - 1)).U
+  val thres = UInt(8.W)
+  def initVal:  UInt = 6.U
+  def minThres: UInt = 6.U
+  def maxThres: UInt = 31.U
+  def update(cause: Bool): ScThreshold = {
+    val res    = Wire(new ScThreshold())
+    val newCtr = this.ctr.getUpdate(cause)
+    val newThres = Mux(
+      res.satPos(newCtr) && this.thres <= maxThres,
+      this.thres + 2.U,
+      Mux(res.satNeg(newCtr) && this.thres >= minThres, this.thres - 2.U, this.thres)
+    )
+    res.thres := newThres
+    res.ctr   := Mux(res.satPos(newCtr) || res.satNeg(newCtr), res.neutralVal, newCtr)
+    res
+  }
+}
+
+object ScThreshold {
+  def apply(bits: Int)(implicit p: Parameters): ScThreshold = {
+    val t = Wire(new ScThreshold())
+    t.ctr   := t.neutralVal
+    t.thres := t.initVal
+    t
+  }
+}
+
+class ScPrediction(implicit p: Parameters) extends ScBundle {
+  val taken:  Bool       = Bool()
+  val usSc:   Bool       = Bool()
+  val target: PrunedAddr = PrunedAddr(VAddrBits)
 }
 
 class PathTableSramWriteReq(val numSets: Int)(implicit p: Parameters) extends WriteReqBundle with HasScParameters {
@@ -51,6 +88,6 @@ class PathTableTrain(val numSets: Int)(implicit p: Parameters) extends ScBundle 
   // val foldedPathHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
 }
 class ScMeta(implicit p: Parameters) extends ScBundle with HasScParameters {
-  val scResp: Vec[ScEntry] = Vec(PathTableSize, new ScEntry())
-  val scPred: Vec[Bool]    = Vec(NumWays, Bool())
+  val scResp: Vec[Vec[ScEntry]] = Vec(PathTableSize, Vec(NumWays, new ScEntry()))
+  val scPred: Vec[Bool]         = Vec(NumWays, Bool())
 }
