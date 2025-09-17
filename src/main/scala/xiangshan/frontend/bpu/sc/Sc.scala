@@ -26,6 +26,7 @@ import xiangshan.frontend.bpu.BasePredictorIO
 import xiangshan.frontend.bpu.FoldedHistoryInfo
 import xiangshan.frontend.bpu.mbtb.MainBtbResult
 import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
+import xiangshan.frontend.bpu.sc
 
 /**
  * This module is the implementation of the Statistical Corrector.
@@ -136,7 +137,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
    */
   private val t1_trainValid = RegEnable(io.train.valid, io.enable)
   private val t1_train      = RegEnable(io.train.bits, io.train.valid)
-  private val t1_trainIdx = PathTableInfos.map(info =>
+  private val t1_setIdx = PathTableInfos.map(info =>
     getIdx(
       t1_train.startVAddr,
       new FoldedHistoryInfo(info.HistoryLength, min(info.HistoryLength, log2Ceil(info.Size / NumWays))),
@@ -161,12 +162,16 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
       }
   }
 
-  pathTable zip t1_trainIdx zip t1_newCtrs foreach {
+  pathTable zip t1_setIdx zip t1_newCtrs foreach {
     case ((table, idx), newEntries) =>
       table.io.update.valid  := t1_writeValid
       table.io.update.setIdx := idx
       table.io.update.wayIdx := t1_wayIdx
       table.io.update.entry  := newEntries(t1_wayIdx)
+  }
+
+  when(t1_writeValid && t1_meta.scPred(t1_wayIdx) =/= t1_taken) {
+    scThreshold(t1_wayIdx) := scThreshold(t1_wayIdx).update(t1_taken)
   }
 
 }
