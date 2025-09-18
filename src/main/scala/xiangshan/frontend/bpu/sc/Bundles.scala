@@ -49,8 +49,8 @@ class ScThreshold(implicit p: Parameters) extends ScBundle {
       this.thres + 2.U,
       Mux(res.satNeg(newCtr) && this.thres >= minThres, this.thres - 2.U, this.thres)
     )
-    res.thres := newThres
-    res.ctr   := Mux(res.satPos(newCtr) || res.satNeg(newCtr), res.neutralVal, newCtr)
+    res.thres     := newThres
+    res.ctr.value := Mux(res.satPos(newCtr) || res.satNeg(newCtr), res.neutralVal, newCtr)
     res
   }
 }
