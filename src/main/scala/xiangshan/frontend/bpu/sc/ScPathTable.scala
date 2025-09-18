@@ -30,9 +30,8 @@ class ScPathTable(val numSets: Int, val histLen: Int)(implicit p: Parameters)
     val req:    DecoupledIO[UInt] = Flipped(Decoupled(UInt(log2Ceil(numSets / NumWays).W)))
     val resp:   Vec[ScEntry]      = Output(Vec(NumWays, new ScEntry()))
     val update: PathTableTrain    = Input(new PathTableTrain(numSets))
-    // val pc:             PrunedAddr            = Input(PrunedAddr(VAddrBits))
-    // val foldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
   }
+
   val io = IO(new ScPathTableIO())
 
   private val sram = Module(new SRAMTemplate(
@@ -47,6 +46,7 @@ class ScPathTable(val numSets: Int, val histLen: Int)(implicit p: Parameters)
     hasMbist = hasMbist,
     hasSramCtl = hasSramCtl
   ))
+
   private val writeBuffer = Module(new WriteBuffer(
     new PathTableSramWriteReq(numSets),
     WriteBufferSize,

@@ -20,13 +20,11 @@ import chisel3.util._
 import org.chipsalliance.cde.config.Parameters
 import scala.math.min
 import utility.XSPerfAccumulate
-import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.BasePredictor
 import xiangshan.frontend.bpu.BasePredictorIO
 import xiangshan.frontend.bpu.FoldedHistoryInfo
 import xiangshan.frontend.bpu.mbtb.MainBtbResult
 import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
-import xiangshan.frontend.bpu.sc
 
 /**
  * This module is the implementation of the Statistical Corrector.
@@ -37,6 +35,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     val mbtbResult:          MainBtbResult         = Input(new MainBtbResult)
     val foldedPathHist:      PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
     val trainFoldedPathHist: PhrAllFoldedHistories = Input(new PhrAllFoldedHistories(AllFoldedHistoryInfo))
+    val takenMask:           Vec[Bool]             = Output(Vec(NumBtbResultEntries, Bool()))
     val meta:                ScMeta                = Output(new ScMeta())
   }
   val io: ScIO = IO(new ScIO)
@@ -72,6 +71,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     table.io.req.valid := s0_fire
     table.io.req.bits  := idx
   }
+
   /*
    *  predict pipeline stage 1
    *  calculate eatch ctr's percsum
@@ -80,8 +80,6 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val s1_startVAddr = RegEnable(io.startVAddr, s0_fire)
   private val s1_idx        = s0_idx.map(RegEnable(_, s0_fire))
   private val s1_resp: Seq[Vec[ScEntry]] = pathTable.map(_.io.resp)
-  // private val s1_rawPathEntries: Vec[ScEntry]      = VecInit(pathTable.map(_.io.resp).flatMap(_.toSeq))
-  // private val s1_pathPercsum:    Vec[SInt]         = VecInit(s1_rawPathEntries.map(entry => getPercsum(entry.ctrs)))
 
   private val s1_pathPercsum: Vec[Vec[SInt]] = VecInit(s1_resp.map(entries =>
     VecInit(entries.map(entry => getPercsum(entry.ctrs.value)))
@@ -94,7 +92,6 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val s2_fire       = io.stageCtrl.s2_fire && io.enable
   private val s2_startVAddr = RegEnable(s1_startVAddr, s1_fire)
   private val s2_resp       = VecInit(s1_resp.map(entries => VecInit(entries.map(RegEnable(_, s1_fire)))))
-  // private val s2_rawPathEntries: Vec[ScEntry] = RegEnable(s1_rawPathEntries, s1_fire)
   private val s2_pathPercsum: Vec[Vec[SInt]] = VecInit(s1_pathPercsum.map(ps => VecInit(ps.map(RegEnable(_, s1_fire)))))
 
   // filter out branches that behind the fetch block start address
@@ -129,8 +126,10 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
         u := true.B
       }
   }
-  io.meta.scResp := s2_resp
-  io.meta.scPred := s2_scPred
+  io.takenMask      := useScPred.zip(s2_scPred).map { case (u, p) => u && p }
+  io.meta.scResp    := s2_resp
+  io.meta.scPred    := s2_scPred
+  io.meta.useScPred := useScPred
 
   /*
    *  train pipeline stage 1

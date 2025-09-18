@@ -22,19 +22,16 @@ import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.SaturateCounter
 import xiangshan.frontend.bpu.SignedSaturateCounter
 import xiangshan.frontend.bpu.WriteReqBundle
-import xiangshan.frontend.bpu.phr.PhrAllFoldedHistories
 
 class ScEntry(implicit p: Parameters) extends ScBundle {
   val ctrs: SignedSaturateCounter = new SignedSaturateCounter(ctrWidth)
 }
+
 class ScWeightEntry(implicit p: Parameters) extends ScBundle {
   val valid: Bool                  = Bool()
   val ctrs:  SignedSaturateCounter = new SignedSaturateCounter(weightCtrWidth)
 }
-// class ScThresholdEntry(implicit p: Parameters) extends ScBundle {
-//   val valid: Bool            = Bool()
-//   val ctrs:  SaturateCounter = new SaturateCounter(thresholdCtrWidth)
-// }
+
 class ScThreshold(implicit p: Parameters) extends ScBundle {
   val ctr: SaturateCounter = new SaturateCounter(thresholdCtrWidth)
   def satPos(ctr: UInt = this.ctr.value): Bool = ctr === ((1.U << thresholdCtrWidth) - 1.U)
@@ -79,15 +76,16 @@ class PathTableSramWriteReq(val numSets: Int)(implicit p: Parameters) extends Wr
   val entry:  ScEntry = new ScEntry()
   // override def tag: Option[UInt] = Some(entry.tag) // use entry's tag directly
 }
+
 class PathTableTrain(val numSets: Int)(implicit p: Parameters) extends ScBundle {
   val valid:  Bool    = Bool()
   val setIdx: UInt    = UInt(log2Ceil(numSets / NumWays).W)
   val wayIdx: UInt    = UInt(log2Ceil(NumWays).W)
   val entry:  ScEntry = new ScEntry()
-  // val pc:             PrunedAddr            = PrunedAddr(VAddrBits)
-  // val foldedPathHist: PhrAllFoldedHistories = new PhrAllFoldedHistories(AllFoldedHistoryInfo)
 }
+
 class ScMeta(implicit p: Parameters) extends ScBundle with HasScParameters {
-  val scResp: Vec[Vec[ScEntry]] = Vec(PathTableSize, Vec(NumWays, new ScEntry()))
-  val scPred: Vec[Bool]         = Vec(NumWays, Bool())
+  val scResp:    Vec[Vec[ScEntry]] = Vec(PathTableSize, Vec(NumWays, new ScEntry()))
+  val scPred:    Vec[Bool]         = Vec(NumWays, Bool())
+  val useScPred: Vec[Bool]         = Vec(NumWays, Bool())
 }

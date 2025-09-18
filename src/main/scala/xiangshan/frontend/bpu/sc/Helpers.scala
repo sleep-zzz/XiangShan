@@ -30,7 +30,7 @@ trait Helpers extends HasScParameters {
   def getTag(pc: PrunedAddr): UInt =
     pc(TagWidth + FetchBlockSizeWidth - 1, FetchBlockSizeWidth)
 
-  // get pc ^ folded_hist for index
+  // get pc ^ foldedHist for index
   def getIdx(pc: PrunedAddr, info: FoldedHistoryInfo, allFh: PhrAllFoldedHistories, numSets: Int): UInt =
     if (info.HistoryLength > 0) {
       val idxFoldedHist = allFh.getHistWithInfo(info).foldedHist
@@ -38,6 +38,7 @@ trait Helpers extends HasScParameters {
     } else {
       (pc >> instOffsetBits)(log2Ceil(numSets) - 1, 0)
     }
+
   def getPercsum(arr: SInt): SInt =
     (arr * 2.S) +& 1.S
 
