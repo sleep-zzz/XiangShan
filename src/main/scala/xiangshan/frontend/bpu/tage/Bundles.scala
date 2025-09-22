@@ -45,39 +45,33 @@ class TableReadResp(implicit p: Parameters) extends TageBundle {
   val allocFailCtr: SaturateCounter = new SaturateCounter(AllocFailCtrWidth)
 }
 
-class TableUpdateReq(implicit p: Parameters) extends TageBundle {
-  val wayMask:      UInt                 = UInt(NumWays.W)
-  val newTakenCtr:  Vec[SaturateCounter] = Vec(NumWays, new SaturateCounter(TakenCtrWidth))
-  val newUsefulCtr: Vec[SaturateCounter] = Vec(NumWays, new SaturateCounter(UsefulCtrWidth))
-}
+// class TableUpdateReq(implicit p: Parameters) extends TageBundle {
+//   val wayMask:      UInt                 = UInt(NumWays.W)
+//   val newTakenCtr:  Vec[SaturateCounter] = Vec(NumWays, new SaturateCounter(TakenCtrWidth))
+//   val newUsefulCtr: Vec[SaturateCounter] = Vec(NumWays, new SaturateCounter(UsefulCtrWidth))
+// }
 
-class TableAllocateReq(implicit p: Parameters) extends TageBundle {
-  val wayMask:  UInt            = UInt(NumWays.W)
-  val tag:      UInt            = UInt(TagWidth.W)
-  val takenCtr: SaturateCounter = new SaturateCounter(TakenCtrWidth)
-}
+// class TableAllocateReq(implicit p: Parameters) extends TageBundle {
+//   val wayMask:  UInt            = UInt(NumWays.W)
+//   val tag:      UInt            = UInt(TagWidth.W)
+//   val takenCtr: SaturateCounter = new SaturateCounter(TakenCtrWidth)
+// }
 
-class TableSramWriteReq(numSets: Int)(implicit p: Parameters) extends TageBundle
-    with HasTageParameters {
-  val setIdx:                   UInt                    = UInt(log2Ceil(numSets / NumBanks).W)
-  val updateReq:                Valid[TableUpdateReq]   = Valid(new TableUpdateReq)
-  val allocateReq:              Valid[TableAllocateReq] = Valid(new TableAllocateReq)
-  val needResetUsefulCtr:       Bool                    = Bool()
-  val needIncreaseAllocFailCtr: Bool                    = Bool()
-  val oldAllocFailCtr:          SaturateCounter         = new SaturateCounter(AllocFailCtrWidth)
-}
+// class TableSramWriteReq(numSets: Int)(implicit p: Parameters) extends TageBundle
+//     with HasTageParameters {
+//   val setIdx:                   UInt                    = UInt(log2Ceil(numSets / NumBanks).W)
+//   val updateReq:                Valid[TableUpdateReq]   = Valid(new TableUpdateReq)
+//   val allocateReq:              Valid[TableAllocateReq] = Valid(new TableAllocateReq)
+//   val needResetUsefulCtr:       Bool                    = Bool()
+//   val needIncreaseAllocFailCtr: Bool                    = Bool()
+//   val oldAllocFailCtr:          SaturateCounter         = new SaturateCounter(AllocFailCtrWidth)
+// }
 
 class EntrySramWriteReq(numSets: Int)(implicit p: Parameters) extends WriteReqBundle
     with HasTageParameters {
   val setIdx:       UInt         = UInt(log2Ceil(numSets / NumBanks).W)
   val entry:        TageEntry    = new TageEntry
   override def tag: Option[UInt] = Some(entry.tag)
-
-  // val updateReq:                Valid[TableUpdateReq]   = Valid(new TableUpdateReq)
-  // val allocateReq:              Valid[TableAllocateReq] = Valid(new TableAllocateReq)
-  // val needResetUsefulCtr:       Bool                    = Bool()
-  // val needIncreaseAllocFailCtr: Bool                    = Bool()
-  // val oldAllocFailCtr:          SaturateCounter         = new SaturateCounter(AllocFailCtrWidth)
 }
 class AllocFailCtrSramWriteReq(numSets: Int)(implicit p: Parameters) extends WriteReqBundle
     with HasTageParameters {
@@ -86,8 +80,6 @@ class AllocFailCtrSramWriteReq(numSets: Int)(implicit p: Parameters) extends Wri
 }
 
 class TableUpadteEntriesReq(implicit p: Parameters) extends TageBundle {
-  val wayMask: UInt = UInt(NumWays.W)
-  // val tag:      UInt            = UInt(TagWidth.W)
-  // val takenCtr: SaturateCounter = new SaturateCounter(TakenCtrWidth)
-  val entries: Vec[Valid[TageEntry]] = Vec(NumWays, Valid(new TageEntry))
+  val wayMask: UInt           = UInt(NumWays.W)
+  val entries: Vec[TageEntry] = Vec(NumWays, new TageEntry)
 }

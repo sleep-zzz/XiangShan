@@ -342,42 +342,45 @@ class Tage(implicit p: Parameters) extends BasePredictor with HasTageParameters 
       table.io.writeSetIdx   := t2_setIdx(tableIdx)
       table.io.writeBankMask := t2_bankMask
 
-      table.io.updateReq.valid             := t2_fire && t2_updateMask(tableIdx).reduce(_ || _)
-      table.io.updateReq.bits.wayMask      := t2_updateMask(tableIdx).asUInt
-      table.io.updateReq.bits.newTakenCtr  := t2_newTakenCtr(tableIdx)
-      table.io.updateReq.bits.newUsefulCtr := t2_newUsefulCtr(tableIdx)
+      // table.io.updateReq.valid             := t2_fire && t2_updateMask(tableIdx).reduce(_ || _)
+      // table.io.updateReq.bits.wayMask      := t2_updateMask(tableIdx).asUInt
+      // table.io.updateReq.bits.newTakenCtr  := t2_newTakenCtr(tableIdx)
+      // table.io.updateReq.bits.newUsefulCtr := t2_newUsefulCtr(tableIdx)
 
-      table.io.allocateReq.valid        := t2_fire && t2_needAllocate && t2_allocateTableMaskOH(tableIdx)
-      table.io.allocateReq.bits.wayMask := t2_allocateWayMaskOH
-      table.io.allocateReq.bits.tag     := t2_tempTag(tableIdx) ^ t2_mispredictBranch.bits.cfiPosition
-      table.io.allocateReq.bits.takenCtr.value :=
-        Mux(t2_mispredictBranch.bits.taken, (1 << (TakenCtrWidth - 1)).U, (1 << (TakenCtrWidth - 1) - 1).U)
+      // table.io.allocateReq.valid        := t2_fire && t2_needAllocate && t2_allocateTableMaskOH(tableIdx)
+      // table.io.allocateReq.bits.wayMask := t2_allocateWayMaskOH
+      // table.io.allocateReq.bits.tag     := t2_tempTag(tableIdx) ^ t2_mispredictBranch.bits.cfiPosition
+      // table.io.allocateReq.bits.takenCtr.value :=
+      //   Mux(t2_mispredictBranch.bits.taken, (1 << (TakenCtrWidth - 1)).U, (1 << (TakenCtrWidth - 1) - 1).U)
 
       table.io.newUpdateReq.valid := t2_fire && (t2_updateMask(tableIdx).reduce(_ || _)
         || (t2_needAllocate && t2_allocateTableMaskOH(tableIdx)))
-      table.io.newUpdateReq.bits.wayMask := t2_updateMask(tableIdx).zip(t2_allocateWayMaskOH.asBools).map {
-        case (update, allocate) => update || allocate
-      }.asUInt
+
       val writeEntries = Wire(Vec(NumWays, new TageEntry))
-      writeEntries.zip(t2_updateMask(tableIdx)).zip(t2_allocateWayMaskOH.asBools).zipWithIndex.foreach {
-        case (((entry, update), allocate), i) =>
+      val writeWayMask = Wire(Vec(NumWays, Bool()))
+      writeEntries.zip(t2_updateMask(tableIdx)).zip(t2_allocateWayMaskOH.asBools).zip(
+        writeWayMask
+      ).zipWithIndex.foreach {
+        case ((((entry, update), allocate), writeWayEnable), i) =>
           entry.valid := update || allocate
           entry.tag := Mux(
             allocate,
             t2_tempTag(tableIdx) ^ t2_mispredictBranch.bits.cfiPosition,
             t2_hitTag(tableIdx)(i)
           )
-          entry.takenCtr := Mux(
+          entry.takenCtr.value := Mux(
             allocate,
             Mux(t2_mispredictBranch.bits.taken, (1 << (TakenCtrWidth - 1)).U, (1 << (TakenCtrWidth - 1) - 1).U),
-            t2_newTakenCtr(tableIdx)(i)
+            t2_newTakenCtr(tableIdx)(i).value
           )
-          entry.usefulCtr := Mux(
+          entry.usefulCtr.value := Mux(
             allocate,
             Mux(t2_needResetUsefulCtr(tableIdx), 0.U, UsefulCtrInitValue.U),
-            t2_newUsefulCtr(tableIdx)(i)
+            t2_newUsefulCtr(tableIdx)(i).value
           )
+          writeWayEnable := update || allocate
       }
+      table.io.newUpdateReq.bits.wayMask := writeWayMask.asUInt
       table.io.newUpdateReq.bits.entries := writeEntries
 
       table.io.needResetUsefulCtr       := t2_fire && t2_needAllocate && t2_needResetUsefulCtr(tableIdx)

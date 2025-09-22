@@ -24,12 +24,12 @@ import xiangshan.frontend.bpu.WriteBuffer
 
 class TageTable(val numSets: Int)(implicit p: Parameters) extends TageModule with Helpers {
   class TageTableIO extends TageBundle {
-    val readReq:                  Valid[TableReadReq]          = Flipped(Valid(new TableReadReq(numSets)))
-    val readResp:                 TableReadResp                = Output(new TableReadResp)
-    val writeSetIdx:              UInt                         = Input(UInt(log2Ceil(numSets / NumBanks).W))
-    val writeBankMask:            UInt                         = Input(UInt(NumBanks.W))
-    val updateReq:                Valid[TableUpdateReq]        = Flipped(Valid(new TableUpdateReq))
-    val allocateReq:              Valid[TableAllocateReq]      = Flipped(Valid(new TableAllocateReq))
+    val readReq:       Valid[TableReadReq] = Flipped(Valid(new TableReadReq(numSets)))
+    val readResp:      TableReadResp       = Output(new TableReadResp)
+    val writeSetIdx:   UInt                = Input(UInt(log2Ceil(numSets / NumBanks).W))
+    val writeBankMask: UInt                = Input(UInt(NumBanks.W))
+    // val updateReq:                Valid[TableUpdateReq]        = Flipped(Valid(new TableUpdateReq))
+    // val allocateReq:              Valid[TableAllocateReq]      = Flipped(Valid(new TableAllocateReq))
     val newUpdateReq:             Valid[TableUpadteEntriesReq] = Flipped(Valid(new TableUpadteEntriesReq))
     val needResetUsefulCtr:       Bool                         = Input(Bool())
     val needIncreaseAllocFailCtr: Bool                         = Input(Bool())
@@ -76,8 +76,7 @@ class TageTable(val numSets: Int)(implicit p: Parameters) extends TageModule wit
         new EntrySramWriteReq(numSets),
         WriteBufferSize,
         numPorts = 1,
-        pipe = true,
-        hasTag = false
+        pipe = true
       )).suggestName(s"tage_entry_write_buffer_bank${bankIdx}_way${wayIdx}")
     }
   private val allocFailCtrWriteBuffers =
@@ -85,8 +84,8 @@ class TageTable(val numSets: Int)(implicit p: Parameters) extends TageModule wit
       Module(new WriteBuffer(
         new AllocFailCtrSramWriteReq(numSets),
         WriteBufferSize,
-        pipe = true,
-        flow = true
+        numPorts = 1,
+        pipe = true
       ))
     )
 
@@ -154,16 +153,4 @@ class TageTable(val numSets: Int)(implicit p: Parameters) extends TageModule wit
       entrySram.map(bank => VecInit(bank.map(way => way.io.r.resp.data.head)))
     )
   io.readResp.allocFailCtr := Mux1H(readBankMaskNext, allocFailCtrSram.map(_.io.r.resp.data.head))
-
-  // writeBuffers.zipWithIndex.foreach {
-  //   case (buffer, bankIdx) =>
-  //     buffer.io.write.head.valid            := (io.updateReq.valid || io.allocateReq.valid) &&
-  // io.writeBankMask(bankIdx)
-  //     buffer.io.write.head.bits.setIdx      := io.writeSetIdx
-  //     buffer.io.write.head.bits.updateReq   := io.updateReq
-  //     buffer.io.write.head.bits.allocateReq := io.allocateReq
-  //     buffer.io.write.head.bits.needResetUsefulCtr       := io.needResetUsefulCtr
-  //     buffer.io.write.head.bits.needIncreaseAllocFailCtr := io.needIncreaseAllocFailCtr
-  //     buffer.io.write.head.bits.oldAllocFailCtr          := io.oldAllocFailCtr
-  // }
 }
