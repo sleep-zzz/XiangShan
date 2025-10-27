@@ -16,6 +16,7 @@
 package xiangshan.frontend.bpu.sc
 
 import chisel3.util._
+import scala.collection.SeqFactory.{Delegate => GlobalTableInfos}
 import xiangshan.frontend.bpu.HasBpuParameters
 import xiangshan.frontend.bpu.ScTableInfo
 
@@ -24,10 +25,8 @@ case class ScParameters(
       new ScTableInfo(1024, 8),
       new ScTableInfo(1024, 16)
     ),
-    TableInfos: Seq[ScTableInfo] = Seq(
-      new ScTableInfo(1024, 0),
-      new ScTableInfo(1024, 4),
-      new ScTableInfo(1024, 10),
+    GlobalTableInfos: Seq[ScTableInfo] = Seq(
+      new ScTableInfo(1024, 8),
       new ScTableInfo(1024, 16)
     ),
     ctrWidth:            Int = 6,
@@ -44,12 +43,15 @@ trait HasScParameters extends HasBpuParameters {
   def ctrWidth:            Int              = scParameters.ctrWidth
   def weightCtrWidth:      Int              = scParameters.weightCtrWidth
   def thresholdThresWidth: Int              = scParameters.thresholdThresWidth
-  def TableInfos:          Seq[ScTableInfo] = scParameters.TableInfos
   def PathTableInfos:      Seq[ScTableInfo] = scParameters.PathTableInfos
   def PathTableSize:       Int              = PathTableInfos.length
-  def NumTables:           Int              = PathTableInfos.length
+  def NumPathTables:       Int              = PathTableInfos.length
+  def GlobalTableInfos:    Seq[ScTableInfo] = scParameters.GlobalTableInfos
+  def GlobalTableSize:     Int              = GlobalTableInfos.length
+  def NumGlobalTables:     Int              = GlobalTableInfos.length
   def NumWays:             Int              = NumBtbResultEntries
   def NumBanks:            Int              = scParameters.NumBanks
+  def BankWidth:           Int              = log2Ceil(NumBanks)
   def WriteBufferSize:     Int              = scParameters.WriteBufferSize
   def TagWidth:            Int              = scParameters.TagWidth
   // TODO
