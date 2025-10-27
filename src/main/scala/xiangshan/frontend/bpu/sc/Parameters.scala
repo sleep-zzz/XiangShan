@@ -16,7 +16,6 @@
 package xiangshan.frontend.bpu.sc
 
 import chisel3.util._
-import scala.collection.SeqFactory.{Delegate => GlobalTableInfos}
 import xiangshan.frontend.bpu.HasBpuParameters
 import xiangshan.frontend.bpu.ScTableInfo
 
@@ -48,7 +47,6 @@ trait HasScParameters extends HasBpuParameters {
   def NumPathTables:       Int              = PathTableInfos.length
   def GlobalTableInfos:    Seq[ScTableInfo] = scParameters.GlobalTableInfos
   def GlobalTableSize:     Int              = GlobalTableInfos.length
-  def NumGlobalTables:     Int              = GlobalTableInfos.length
   def NumWays:             Int              = NumBtbResultEntries
   def NumBanks:            Int              = scParameters.NumBanks
   def BankWidth:           Int              = log2Ceil(NumBanks)

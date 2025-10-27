@@ -222,11 +222,10 @@ class BpuSpeculationMeta(implicit p: Parameters) extends BpuBundle {
 
 // metadata for training (e.g. aheadBtb, mainBtb-specific)
 class BpuMeta(implicit p: Parameters) extends BpuBundle {
-  val abtb: AheadBtbMeta = new AheadBtbMeta
-  val mbtb: MainBtbMeta  = new MainBtbMeta
-  val tage: TageMeta     = new TageMeta
-  val ras:  RasMeta      = new RasMeta
-  val phr:  PhrPtr       = new PhrPtr
+  val mbtb: MainBtbMeta = new MainBtbMeta
+  val tage: TageMeta    = new TageMeta
+  val ras:  RasMeta     = new RasMeta
+  val phr:  PhrPtr      = new PhrPtr
   // val ghr:    UInt         = UInt(GhrHistoryLength.W)
   val sc:     ScMeta     = new ScMeta
   val ittage: IttageMeta = new IttageMeta

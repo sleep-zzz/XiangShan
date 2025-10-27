@@ -99,7 +99,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val s1_fire       = io.stageCtrl.s1_fire && io.enable
   private val s1_startVAddr = RegEnable(io.startVAddr, s0_fire)
   private val s1_ghr        = RegEnable(s0_ghr, s0_fire)
-  private val s1_idx        = s0_pathIdx.map(RegEnable(_, s0_fire))
+  // private val s1_idx        = s0_pathIdx.map(RegEnable(_, s0_fire))
   private val s1_pathResp:   Seq[Vec[ScEntry]] = pathTable.map(_.io.resp)
   private val s1_globalResp: Seq[Vec[ScEntry]] = globalTable.map(_.io.resp)
   private val s1_allResp:    Vec[Vec[ScEntry]] = VecInit(s1_pathResp ++ s1_globalResp)
@@ -109,7 +109,8 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   ))
   require(
     s1_allPercsum.length == PathTableInfos.length + GlobalTableInfos.length,
-    s"s1_allPercsum length ${s1_allPercsum.length} != PathTableInfos.length + GlobalTableInfos.length ${PathTableInfos.length + GlobalTableInfos.length}"
+    s"s1_allPercsum length ${s1_allPercsum.length} != " +
+      s"PathTableInfos.length + GlobalTableInfos.length ${PathTableInfos.length + GlobalTableInfos.length}"
   )
   // Calculate sumPrecsum in advance
   private val s1_sumPrecsum: Vec[SInt] = VecInit.tabulate(NumWays)(j => s1_allPercsum.map(_(j)).reduce(_ +& _))

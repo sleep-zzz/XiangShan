@@ -83,7 +83,9 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
 
   private val lessThanFirstTaken = update.position.map(_ < firstTakenPos)
   private val numLess            = PopCount(lessThanFirstTaken)
-  private val takenPtr           = Mux(taken, ~numLess, (GhrShamt - 1).U) // TODO: check this
+  // FIXME: if numLess = GhrShamt maybe takenPtr error
+  private val takenPtr = Mux(taken, ~numLess(log2Ceil(GhrShamt) - 1, 0), 0.U)
+  require(isPow2(GhrShamt), "GhrShamt must be pow2")
 
   // Set High numLess bits to 0, the numLess bit is taken
   private val resultBits = VecInit(Seq.tabulate(GhrShamt)(i => Mux(i.U === takenPtr, taken, false.B)))
@@ -97,7 +99,7 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val takenPosition    = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position caclulate maybe wrong
   private val newLessThanStart = oldPositions.map(_ < takenPosition)
   private val newNumLess       = PopCount(newLessThanStart)
-  private val newTakenPtr      = Mux(newTaken, ~newNumLess, (GhrShamt - 1).U)
+  private val newTakenPtr      = Mux(newTaken, ~newNumLess(log2Ceil(GhrShamt) - 1, 0), 0.U)
 
   // update from redirect or update
   when(io.redirect.valid) {
@@ -116,6 +118,7 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val ghrUInt                = ghr.value.asUInt
   private val lessThanFirstTakenUInt = lessThanFirstTaken.asUInt
   dontTouch(resultBitsUInt)
+  dontTouch(numLess)
   dontTouch(shiftBitsUInt)
   dontTouch(updateGhrUInt)
   dontTouch(ghrUInt)
