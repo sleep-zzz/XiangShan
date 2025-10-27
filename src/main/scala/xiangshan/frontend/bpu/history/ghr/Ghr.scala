@@ -41,32 +41,6 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   // global history
   private val s0_ghr = WireInit(0.U.asTypeOf(new GhrEntry))
   private val ghr    = RegInit(0.U.asTypeOf(new GhrEntry))
-  // private val s1_ghr = RegInit(0.U.asTypeOf(new GhrEntry))
-  // private val s2_ghr = RegInit(0.U.asTypeOf(new GhrEntry))
-  // private val s3_ghr = RegInit(0.U.asTypeOf(new GhrEntry))
-
-  // ghrs matained through pipeline
-  // private val redirect = io.redirect
-  // when(s0_fire) {
-  //   s1_ghr := s0_ghr
-  // }.elsewhen(redirect.valid) {
-  //   s1_ghr.valid := false.B
-  //   s1_ghr.value := 0.U.asTypeOf(s1_ghr.value)
-  // }
-
-  // when(redirect.valid) {
-  //   s2_ghr.valid := false.B
-  //   s2_ghr.value := 0.U.asTypeOf(s2_ghr.value)
-  // }.elsewhen(s1_fire) {
-  //   s2_ghr := s1_ghr
-  // }
-
-  // when(redirect.valid) {
-  //   s3_ghr.valid := false.B
-  //   s3_ghr.value := 0.U.asTypeOf(s3_ghr.value)
-  // }.elsewhen(s2_fire) {
-  //   s3_ghr := s2_ghr
-  // }
 
   /*
    * GHR train from redirct/s3_prediction
@@ -83,21 +57,23 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
 
   private val lessThanFirstTaken = update.position.map(_ < firstTakenPos)
   private val numLess            = PopCount(lessThanFirstTaken)
-  private val takenPtr           = Mux(taken, ~numLess, (GhrShamt - 1).U) // TODO: check this
+  // FIXME: if numLess = GhrShamt maybe takenPtr error
+  private val takenPtr = Mux(taken, ~numLess(log2Ceil(GhrShamt) - 1, 0), 0.U)
+  require(isPow2(GhrShamt), "GhrShamt must be pow2")
 
   // Set High numLess bits to 0, the numLess bit is taken
   private val resultBits = VecInit(Seq.tabulate(GhrShamt)(i => Mux(i.U === takenPtr, taken, false.B)))
   private val shiftBits  = Mux(taken, resultBits, 0.U.asTypeOf(resultBits))
-  private val catBits    = Cat(ghr.value ++ shiftBits)
+  private val catBits    = Cat(ghr.value.asUInt, shiftBits.asUInt)
   private val updateGhr  = VecInit(Seq.tabulate(GhrHistoryLength)(i => catBits(takenPtr + i.U)))
 
-  // redirct ghr update
+  // redirect ghr update
   private val oldPositions     = io.redirect.meta.position
   private val newTaken         = io.redirect.taken
-  private val takenPosition    = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position caclulate maybe wrong
+  private val takenPosition    = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position calculate maybe wrong
   private val newLessThanStart = oldPositions.map(_ < takenPosition)
   private val newNumLess       = PopCount(newLessThanStart)
-  private val newTakenPtr      = Mux(newTaken, ~newNumLess, (GhrShamt - 1).U)
+  private val newTakenPtr      = Mux(newTaken, ~newNumLess(log2Ceil(GhrShamt) - 1, 0), 0.U)
 
   // update from redirect or update
   when(io.redirect.valid) {
@@ -116,6 +92,7 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val ghrUInt                = ghr.value.asUInt
   private val lessThanFirstTakenUInt = lessThanFirstTaken.asUInt
   dontTouch(resultBitsUInt)
+  dontTouch(numLess)
   dontTouch(shiftBitsUInt)
   dontTouch(updateGhrUInt)
   dontTouch(ghrUInt)

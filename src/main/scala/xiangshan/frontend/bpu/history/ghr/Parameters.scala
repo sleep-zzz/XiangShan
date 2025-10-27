@@ -17,8 +17,4 @@ package xiangshan.frontend.bpu.history.ghr
 
 import xiangshan.frontend.bpu.HasBpuParameters
 
-trait HasGhrParameters extends HasBpuParameters {
-
-  // def Shamt:            Int = NumBtbResultEntries
-  // def GhrHistoryLength: Int = bpuParameters.scParameters.TableInfos.map(_.HistoryLength).max + Shamt
-}
+trait HasGhrParameters extends HasBpuParameters {}
