@@ -64,7 +64,7 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   // Set High numLess bits to 0, the numLess bit is taken
   private val resultBits = VecInit(Seq.tabulate(GhrShamt)(i => Mux(i.U === takenPtr, taken, false.B)))
   private val shiftBits  = Mux(taken, resultBits, 0.U.asTypeOf(resultBits))
-  private val catBits    = Cat(ghr.value ++ shiftBits)
+  private val catBits    = Cat(ghr.value.asUInt, shiftBits.asUInt)
   private val updateGhr  = VecInit(Seq.tabulate(GhrHistoryLength)(i => catBits(takenPtr + i.U)))
 
   // redirect ghr update

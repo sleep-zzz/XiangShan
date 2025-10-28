@@ -228,48 +228,49 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val t1_writePathEntryVec = WireInit(
     VecInit.fill(PathTableSize)(VecInit.fill(NumWays)(0.U.asTypeOf(new ScEntry())))
   )
-  private val t1_writePathWayMask = WireInit(VecInit.fill(PathTableSize)(VecInit.fill(NumWays)(false.B)))
-
-  t1_oldPathCtrs.zip(t1_writePathEntryVec).zip(t1_writePathWayMask).foreach {
-    case ((oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]), writeWayMask: Vec[Bool]) =>
+  private val t1_writeWayMask = WireInit(VecInit.fill(NumWays)(false.B))
+  t1_branchesWayIdxVec.zip(t1_writeValidVec).foreach {
+    case (wayIdx, writeValid) =>
+      when(writeValid) {
+        t1_writeWayMask(wayIdx) := true.B
+      }
+  }
+  t1_oldPathCtrs.zip(t1_writePathEntryVec).foreach {
+    case (oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]) =>
       oldEntries.zip(writeEntries).zipWithIndex.foreach { case ((oldEntry, newEntry), wayIdx) =>
         val newCtr = t1_branchesTakenMask.zip(t1_branchesWayIdxVec).zip(t1_writeValidVec).foldLeft(oldEntry.ctr) {
           case (prevCtr, ((writeTaken, writeWayIdx), writeValid)) =>
             val needUpdate = writeValid && writeWayIdx === wayIdx.U
             val nextValue  = prevCtr.getUpdate(writeTaken)
             val nextCtr    = WireInit(prevCtr)
-            nextCtr.value             := nextValue
-            writeWayMask(writeWayIdx) := needUpdate
+            nextCtr.value := nextValue
             Mux(needUpdate, nextCtr, prevCtr)
         }
-        dontTouch(newCtr)
         newEntry.ctr := WireInit(newCtr)
       }
   }
 
-  pathTable zip t1_pathSetIdx zip t1_writePathEntryVec zip t1_writePathWayMask foreach {
-    case (((table, idx), writeEntries), wayMask) =>
+  pathTable zip t1_pathSetIdx zip t1_writePathEntryVec foreach {
+    case ((table, idx), writeEntries) =>
       table.io.update.valid    := t1_writeValid
       table.io.update.setIdx   := idx
-      table.io.update.wayMask  := wayMask
+      table.io.update.wayMask  := t1_writeWayMask
       table.io.update.entryVec := writeEntries
   }
 
   private val t1_writeGlobalEntryVec = WireInit(
     VecInit.fill(GlobalTableSize)(VecInit.fill(NumWays)(0.U.asTypeOf(new ScEntry())))
   )
-  private val t1_writeGlobalWayMask = WireInit(VecInit.fill(GlobalTableSize)(VecInit.fill(NumWays)(false.B)))
 
-  t1_oldGlobalCtrs.zip(t1_writeGlobalEntryVec).zip(t1_writeGlobalWayMask).foreach {
-    case ((oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]), writeWayMask: Vec[Bool]) =>
+  t1_oldGlobalCtrs.zip(t1_writeGlobalEntryVec).foreach {
+    case (oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]) =>
       oldEntries.zip(writeEntries).zipWithIndex.foreach { case ((oldEntry, newEntry), wayIdx) =>
         val newCtr = t1_branchesTakenMask.zip(t1_branchesWayIdxVec).zip(t1_writeValidVec).foldLeft(oldEntry.ctr) {
           case (prevCtr, ((writeTaken, writeWayIdx), writeValid)) =>
             val needUpdate = writeValid && writeWayIdx === wayIdx.U
             val nextValue  = prevCtr.getUpdate(writeTaken)
             val nextCtr    = WireInit(prevCtr)
-            nextCtr.value             := nextValue
-            writeWayMask(writeWayIdx) := needUpdate
+            nextCtr.value := nextValue
             Mux(needUpdate, nextCtr, prevCtr)
         }
         dontTouch(newCtr)
@@ -277,11 +278,11 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
       }
   }
 
-  globalTable zip t1_globalSetIdx zip t1_writeGlobalEntryVec zip t1_writeGlobalWayMask foreach {
-    case (((table, idx), writeEntries), wayMask) =>
+  globalTable zip t1_globalSetIdx zip t1_writeGlobalEntryVec foreach {
+    case ((table, idx), writeEntries) =>
       table.io.update.valid    := t1_writeValid
       table.io.update.setIdx   := idx
-      table.io.update.wayMask  := wayMask
+      table.io.update.wayMask  := t1_writeWayMask
       table.io.update.entryVec := writeEntries
   }
 
@@ -290,9 +291,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   }
 
   dontTouch(t1_writePathEntryVec)
-  dontTouch(t1_writePathWayMask)
   dontTouch(t1_writeGlobalEntryVec)
-  dontTouch(t1_writeGlobalWayMask)
   XSPerfAccumulate("sc_pred_wrong", t1_writeValid && t1_mismatchMask.reduce(_ || _))
   // TODO: add more performance counters
 }
