@@ -41,32 +41,6 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   // global history
   private val s0_ghr = WireInit(0.U.asTypeOf(new GhrEntry))
   private val ghr    = RegInit(0.U.asTypeOf(new GhrEntry))
-  // private val s1_ghr = RegInit(0.U.asTypeOf(new GhrEntry))
-  // private val s2_ghr = RegInit(0.U.asTypeOf(new GhrEntry))
-  // private val s3_ghr = RegInit(0.U.asTypeOf(new GhrEntry))
-
-  // ghrs matained through pipeline
-  // private val redirect = io.redirect
-  // when(s0_fire) {
-  //   s1_ghr := s0_ghr
-  // }.elsewhen(redirect.valid) {
-  //   s1_ghr.valid := false.B
-  //   s1_ghr.value := 0.U.asTypeOf(s1_ghr.value)
-  // }
-
-  // when(redirect.valid) {
-  //   s2_ghr.valid := false.B
-  //   s2_ghr.value := 0.U.asTypeOf(s2_ghr.value)
-  // }.elsewhen(s1_fire) {
-  //   s2_ghr := s1_ghr
-  // }
-
-  // when(redirect.valid) {
-  //   s3_ghr.valid := false.B
-  //   s3_ghr.value := 0.U.asTypeOf(s3_ghr.value)
-  // }.elsewhen(s2_fire) {
-  //   s3_ghr := s2_ghr
-  // }
 
   /*
    * GHR train from redirct/s3_prediction
@@ -93,10 +67,10 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val catBits    = Cat(ghr.value ++ shiftBits)
   private val updateGhr  = VecInit(Seq.tabulate(GhrHistoryLength)(i => catBits(takenPtr + i.U)))
 
-  // redirct ghr update
+  // redirect ghr update
   private val oldPositions     = io.redirect.meta.position
   private val newTaken         = io.redirect.taken
-  private val takenPosition    = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position caclulate maybe wrong
+  private val takenPosition    = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position calculate maybe wrong
   private val newLessThanStart = oldPositions.map(_ < takenPosition)
   private val newNumLess       = PopCount(newLessThanStart)
   private val newTakenPtr      = Mux(newTaken, ~newNumLess(log2Ceil(GhrShamt) - 1, 0), 0.U)

@@ -94,7 +94,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
 
   /*
    *  predict pipeline stage 1
-   *  calculate eatch ctr's percsum
+   *  calculate each ctr's percsum
    */
   private val s1_fire       = io.stageCtrl.s1_fire && io.enable
   private val s1_startVAddr = RegEnable(io.startVAddr, s0_fire)
@@ -112,11 +112,11 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     s"s1_allPercsum length ${s1_allPercsum.length} != " +
       s"PathTableInfos.length + GlobalTableInfos.length ${PathTableInfos.length + GlobalTableInfos.length}"
   )
-  // Calculate sumPrecsum in advance
-  private val s1_sumPrecsum: Vec[SInt] = VecInit.tabulate(NumWays)(j => s1_allPercsum.map(_(j)).reduce(_ +& _))
+  // Calculate sumPercsum in advance
+  private val s1_sumPercsum: Vec[SInt] = VecInit.tabulate(NumWays)(j => s1_allPercsum.map(_(j)).reduce(_ +& _))
   require(
-    s1_sumPrecsum.length == NumWays,
-    s"s1_sumPrecsum length ${s1_sumPrecsum.length} != NumWays $NumWays"
+    s1_sumPercsum.length == NumWays,
+    s"s1_sumPercsum length ${s1_sumPercsum.length} != NumWays $NumWays"
   )
 
   /*
@@ -128,7 +128,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val s2_ghr        = RegEnable(s1_ghr, s1_fire)
   private val s2_pathResp   = s1_pathResp.map(entries => VecInit(entries.map(RegEnable(_, s1_fire))))
   private val s2_globalResp = s1_globalResp.map(entries => VecInit(entries.map(RegEnable(_, s1_fire))))
-  private val s2_sumPrecsum: Vec[SInt] = VecInit(s1_sumPrecsum.map(RegEnable(_, s1_fire)))
+  private val s2_sumPercsum: Vec[SInt] = VecInit(s1_sumPercsum.map(RegEnable(_, s1_fire)))
 
   private val s2_mbtbHitMask    = io.mbtbResult.hitMask
   private val s2_mbtbPositions  = io.mbtbResult.positions
@@ -141,7 +141,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     case (((hit, attr), pos), i) =>
       when(hit && attr.isConditional) {
         val pathIdx = pos(log2Ceil(NumWays) - 1, 0)
-        s2_totalPercsum(i) := s2_sumPrecsum(pathIdx)
+        s2_totalPercsum(i) := s2_sumPercsum(pathIdx)
         s2_hitMask(i)      := true.B
       }
   }
@@ -234,8 +234,8 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     case ((oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]), writeWayMask: Vec[Bool]) =>
       oldEntries.zip(writeEntries).zipWithIndex.foreach { case ((oldEntry, newEntry), wayIdx) =>
         val newCtr = t1_branchesTakenMask.zip(t1_branchesWayIdxVec).zip(t1_writeValidVec).foldLeft(oldEntry.ctr) {
-          case (prevCtr, ((writeTaken, writeWayIdx), writeValidalid)) =>
-            val needUpdate = writeValidalid && writeWayIdx === wayIdx.U
+          case (prevCtr, ((writeTaken, writeWayIdx), writeValid)) =>
+            val needUpdate = writeValid && writeWayIdx === wayIdx.U
             val nextValue  = prevCtr.getUpdate(writeTaken)
             val nextCtr    = WireInit(prevCtr)
             nextCtr.value             := nextValue
@@ -246,8 +246,6 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
         newEntry.ctr := WireInit(newCtr)
       }
   }
-
-  dontTouch(t1_writePathEntryVec)
 
   pathTable zip t1_pathSetIdx zip t1_writePathEntryVec zip t1_writePathWayMask foreach {
     case (((table, idx), writeEntries), wayMask) =>
@@ -266,8 +264,8 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     case ((oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]), writeWayMask: Vec[Bool]) =>
       oldEntries.zip(writeEntries).zipWithIndex.foreach { case ((oldEntry, newEntry), wayIdx) =>
         val newCtr = t1_branchesTakenMask.zip(t1_branchesWayIdxVec).zip(t1_writeValidVec).foldLeft(oldEntry.ctr) {
-          case (prevCtr, ((writeTaken, writeWayIdx), writeValidalid)) =>
-            val needUpdate = writeValidalid && writeWayIdx === wayIdx.U
+          case (prevCtr, ((writeTaken, writeWayIdx), writeValid)) =>
+            val needUpdate = writeValid && writeWayIdx === wayIdx.U
             val nextValue  = prevCtr.getUpdate(writeTaken)
             val nextCtr    = WireInit(prevCtr)
             nextCtr.value             := nextValue
@@ -278,8 +276,6 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
         newEntry.ctr := WireInit(newCtr)
       }
   }
-
-  dontTouch(t1_writeGlobalEntryVec)
 
   globalTable zip t1_globalSetIdx zip t1_writeGlobalEntryVec zip t1_writeGlobalWayMask foreach {
     case (((table, idx), writeEntries), wayMask) =>
@@ -292,6 +288,11 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   when(t1_writeValid) {
     scThreshold := t1_writeThresVec
   }
+
+  dontTouch(t1_writePathEntryVec)
+  dontTouch(t1_writePathWayMask)
+  dontTouch(t1_writeGlobalEntryVec)
+  dontTouch(t1_writeGlobalWayMask)
   XSPerfAccumulate("sc_pred_wrong", t1_writeValid && t1_mismatchMask.reduce(_ || _))
   // TODO: add more performance counters
 }
