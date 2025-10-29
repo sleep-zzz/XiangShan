@@ -57,26 +57,32 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val s3_firstTakenIdx      = OHToUInt(s3_update.firstTakenOH)
   private val s3_firstTakenPos      = s3_update.position(s3_firstTakenIdx)
   private val s3_lessThanFirstTaken = s3_update.position.map(_ < s3_firstTakenPos)
-  private val s3_numLess            = PopCount(s3_lessThanFirstTaken)
+  /* Set High numLess bits to 0, the next is taken, other is 0
+   * if s3_numLess is 0011 s3_takenPtr is 100
+   * s3_takenShiftBits is 8'b00010000
+   * the s3_shiftBits should be 8'b00010000
+   * catBits is oldGhr ++ s3_shiftBits
+   * s3_updateGhr is (oldGhr ++ 0001)(GhrHistoryLength-1,0)
+   */
+  private val s3_numLess = PopCount(s3_lessThanFirstTaken)
   private val s3_takenPtr =
     Mux(s3_taken, ~s3_numLess(log2Ceil(GhrShamt) - 1, 0), 0.U) // FIXME: if numLess = GhrShamt maybe takenPtr error
-  require(isPow2(GhrShamt), "GhrShamt must be pow2")
-
-  // Set High numLess bits to 0, the numLess bit is taken
   private val s3_takenShiftBits = VecInit(Seq.tabulate(GhrShamt)(i => Mux(i.U === s3_takenPtr, s3_taken, false.B)))
   private val s3_shiftBits      = Mux(s3_taken, s3_takenShiftBits, 0.U.asTypeOf(s3_takenShiftBits))
   private val s3_updateGhr      = getNewGhr(ghr.value, s3_shiftBits, s3_takenPtr)
+  require(isPow2(GhrShamt), "GhrShamt must be pow2")
 
   /*
    * redirect recovery GHR
    */
-  private val r0_valid          = io.redirect.valid
-  private val r0_metaGhr        = io.redirect.meta.ghr
-  private val r0_oldPositions   = io.redirect.meta.position
-  private val r0_taken          = io.redirect.taken
-  private val r0_takenPosition  = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position calculate maybe wrong
-  private val r0_lessThanPc     = r0_oldPositions.map(_ < r0_takenPosition)    // positions less than redirct branch pc
-  private val r0_numLess        = PopCount(r0_lessThanPc)
+  private val r0_valid         = io.redirect.valid
+  private val r0_metaGhr       = io.redirect.meta.ghr
+  private val r0_oldPositions  = io.redirect.meta.position
+  private val r0_taken         = io.redirect.taken
+  private val r0_takenPosition = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position calculate maybe wrong
+  private val r0_lessThanPc    = r0_oldPositions.map(_ < r0_takenPosition)    // positions less than redirct branch pc
+  private val r0_numLess       = PopCount(r0_lessThanPc)
+  // TODO: if r0_takenPosition not in oldPositions, maybe error
   private val r0_takenPtr       = Mux(r0_taken, ~r0_numLess(log2Ceil(GhrShamt) - 1, 0), 0.U)
   private val r0_takenShiftBits = VecInit(Seq.tabulate(GhrShamt)(i => Mux(i.U === r0_takenPtr, r0_taken, false.B)))
   private val r0_shiftBits      = Mux(r0_taken, r0_takenShiftBits, 0.U.asTypeOf(r0_takenShiftBits))
