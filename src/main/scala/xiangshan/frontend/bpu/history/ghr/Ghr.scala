@@ -53,23 +53,30 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val s3_hitMask       = s3_update.hitMask
   private val s3_firstTakenIdx = OHToUInt(s3_update.firstTakenOH)
   private val s3_firstTakenPos = s3_update.position(s3_firstTakenIdx)
+  private val s3_branchVAddr   = getBranchVAddr(s3_update.pc, s3_firstTakenPos)
+  private val s3_imliTaken =
+    s3_branchVAddr.addr > s3_update.target.addr // TODO: IMLI taken calculation may be wrong
   private val s3_lessThanFirstTaken = s3_update.position.zip(s3_hitMask).map {
     case (pos, hit) => hit && (pos < s3_firstTakenPos)
   }
   // NOTE: GhrShamt is NumBtbResultEntries, but numLess may be 1 larger than GhrShamt
-  private val s3_numLess   = PopCount(s3_lessThanFirstTaken)
-  private val s3_numHit    = PopCount(s3_hitMask)
-  private val s3_updateGhr = getNewGhr(ghr.value, s3_numLess, s3_numHit, s3_taken)
+  private val s3_numLess    = PopCount(s3_lessThanFirstTaken)
+  private val s3_numHit     = PopCount(s3_hitMask)
+  private val s3_updateGhr  = getNewGhr(ghr.ghr, s3_numLess, s3_numHit, s3_taken)(GhrHistoryLength)
+  private val s3_updateImli = getNewGhr(ghr.imli, s3_numLess, s3_numHit, s3_imliTaken)(ImliHistoryLength)
   require(isPow2(GhrShamt), "GhrShamt must be pow2")
 
   /*
    * redirect recovery GHR
    */
-  private val r0_valid         = io.redirect.valid
-  private val r0_metaGhr       = io.redirect.meta.ghr
-  private val r0_oldPositions  = io.redirect.meta.position
-  private val r0_oldHits       = io.redirect.meta.hitMask
-  private val r0_taken         = io.redirect.taken
+  private val r0_valid        = io.redirect.valid
+  private val r0_metaGhr      = io.redirect.meta.ghr
+  private val r0_metaImli     = io.redirect.meta.imli
+  private val r0_oldPositions = io.redirect.meta.position
+  private val r0_oldHits      = io.redirect.meta.hitMask
+  private val r0_taken        = io.redirect.taken
+  private val r0_imliTaken =
+    io.redirect.startVAddr.addr > io.redirect.target.addr // TODO: IMLI taken calculation may be wrong
   private val r0_takenPosition = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position calculate maybe wrong
   private val r0_lessThanPc = r0_oldPositions.zip(r0_oldHits).map {
     case (pos, hit) => hit && (pos < r0_takenPosition)
@@ -77,21 +84,27 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val r0_numLess = PopCount(r0_lessThanPc)
   private val r0_numHit  = PopCount(r0_oldHits)
   // TODO: calculate the new ghr based on redirect info maybe need more cycles
-  private val r0_updateGhr = getNewGhr(r0_metaGhr, r0_numLess, r0_numHit, r0_taken)
+  private val r0_updateGhr  = getNewGhr(r0_metaGhr, r0_numLess, r0_numHit, r0_taken)(GhrHistoryLength)
+  private val r0_updateImli = getNewGhr(r0_metaImli, r0_numLess, r0_numHit, r0_imliTaken)(ImliHistoryLength)
   // update from redirect or update
   when(r0_valid) {
     ghr.valid    := false.B
-    ghr.value    := r0_updateGhr // TODO: redirect ghr recovery can delay one/two cycle
+    ghr.ghr      := r0_updateGhr // TODO: redirect ghr recovery can delay one/two cycle
+    ghr.imli     := r0_updateImli
     s0_ghr.valid := false.B
-    s0_ghr.value := r0_updateGhr
+    s0_ghr.ghr   := r0_updateGhr
+    s0_ghr.imli  := r0_updateImli
   }.elsewhen(s3_fire) {
     ghr.valid    := true.B
-    ghr.value    := s3_updateGhr
+    ghr.ghr      := s3_updateGhr
+    ghr.imli     := s3_updateImli
     s0_ghr.valid := true.B // if s3_fire, ghr can be used
-    s0_ghr.value := s3_updateGhr
+    s0_ghr.ghr   := s3_updateGhr
+    s0_ghr.imli  := s3_updateImli
   }.otherwise {
     s0_ghr.valid := (!r0_valid) && ghr.valid
-    s0_ghr.value := ghr.value
+    s0_ghr.ghr   := ghr.ghr
+    s0_ghr.imli  := ghr.imli
   }
 
   if (EnableCommitGHistDiff) {
@@ -99,7 +112,8 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
     val s3_lessThanFirstTakenUInt = s3_lessThanFirstTaken.asUInt
     val r0_updateGhrUInt          = r0_updateGhr.asUInt
     val r0_lessThanPcUInt         = r0_lessThanPc.asUInt
-    val ghrUInt                   = ghr.value.asUInt
+    val ghrUInt                   = ghr.ghr.asUInt
+    val imliUInt                  = ghr.imli.asUInt
     dontTouch(s3_numLess)
     dontTouch(s3_updateGhrUInt)
     dontTouch(s3_lessThanFirstTakenUInt)
@@ -107,5 +121,6 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
     dontTouch(r0_updateGhrUInt)
     dontTouch(r0_lessThanPcUInt)
     dontTouch(ghrUInt)
+    dontTouch(imliUInt)
   }
 }

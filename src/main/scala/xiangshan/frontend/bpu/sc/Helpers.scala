@@ -41,6 +41,10 @@ trait Helpers extends HasScParameters {
     ((pc >> (BankWidth + FetchBlockSizeWidth)) ^ ghr)(log2Ceil(numSets) - 1, 0)
 
   // get pc ^ ghr for index
+  def getImliTableIdx(pc: PrunedAddr, imli: UInt, numSets: Int): UInt =
+    ((pc >> (BankWidth + FetchBlockSizeWidth)) ^ imli)(log2Ceil(numSets) - 1, 0)
+
+  // get pc ^ ghr for index
   def getBiasTableIdx(pc: PrunedAddr, numSets: Int): UInt =
     (pc >> (BankWidth + FetchBlockSizeWidth))(log2Ceil(numSets) - 1, 0)
 

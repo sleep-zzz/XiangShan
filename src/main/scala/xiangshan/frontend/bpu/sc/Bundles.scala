@@ -22,6 +22,7 @@ import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.SaturateCounter
 import xiangshan.frontend.bpu.SignedSaturateCounter
 import xiangshan.frontend.bpu.WriteReqBundle
+import xiangshan.frontend.bpu.history.ghr.GhrEntry
 
 class ScEntry(implicit p: Parameters) extends ScBundle {
   val ctr: SignedSaturateCounter = new SignedSaturateCounter(ctrWidth)
@@ -34,6 +35,7 @@ class ScTageInfo(implicit p: Parameters) extends ScBundle {
 class TableCtrl extends Bundle {
   val pathEnable:   Bool = Bool()
   val globalEnable: Bool = Bool()
+  val imliEnable:   Bool = Bool()
   val biasEnable:   Bool = Bool()
   // TODO: other ctrl signals
 }
@@ -79,8 +81,9 @@ class ScMeta(implicit p: Parameters) extends ScBundle with HasScParameters {
   val scPathResp:      Vec[Vec[UInt]] = Vec(PathTableSize, Vec(NumWays, UInt(ScEntryWidth.W)))
   val scGlobalResp:    Vec[Vec[UInt]] = Vec(GlobalTableSize, Vec(NumWays, UInt(ScEntryWidth.W)))
   val scBiasLowerBits: Vec[UInt]      = Vec(NumWays, UInt(log2Ceil(BiasUseTageBitWidth).W))
+  val scImliResp:      Vec[UInt]      = Vec(NumWays, UInt(ScEntryWidth.W))
   val scBiasResp:      Vec[UInt]      = Vec(NumWays, UInt(ScEntryWidth.W))
-  val scGhr:           UInt           = UInt(GhrHistoryLength.W)
+  val scGhr:           GhrEntry       = new GhrEntry
   val scPred:          Vec[Bool]      = Vec(NumWays, Bool())
   val tagePred:        Vec[Bool]      = Vec(NumBtbResultEntries, Bool())
   val tagePredValid:   Vec[Bool]      = Vec(NumBtbResultEntries, Bool())

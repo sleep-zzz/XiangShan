@@ -17,4 +17,6 @@ package xiangshan.frontend.bpu.history.ghr
 
 import xiangshan.frontend.bpu.HasBpuParameters
 
-trait HasGhrParameters extends HasBpuParameters {}
+trait HasGhrParameters extends HasBpuParameters {
+  def ImliHistoryLength: Int = 8
+}

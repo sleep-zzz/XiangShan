@@ -23,17 +23,21 @@ import xiangshan.frontend.PrunedAddr
 
 class GhrEntry(implicit p: Parameters) extends GhrBundle {
   val valid: Bool = Bool()
-  val value: UInt = UInt(GhrHistoryLength.W)
+  val ghr:   UInt = UInt(GhrHistoryLength.W)
+  val imli:  UInt = UInt(ImliHistoryLength.W)
 }
 class GhrUpdate(implicit p: Parameters) extends GhrBundle {
-  val taken:        Bool      = Bool()
-  val hitMask:      Vec[Bool] = Vec(NumBtbResultEntries, Bool())
-  val position:     Vec[UInt] = Vec(NumBtbResultEntries, UInt(CfiPositionWidth.W))
-  val firstTakenOH: Vec[Bool] = Vec(NumBtbResultEntries, Bool())
+  val taken:        Bool       = Bool()
+  val hitMask:      Vec[Bool]  = Vec(NumBtbResultEntries, Bool())
+  val position:     Vec[UInt]  = Vec(NumBtbResultEntries, UInt(CfiPositionWidth.W))
+  val firstTakenOH: Vec[Bool]  = Vec(NumBtbResultEntries, Bool())
+  val pc:           PrunedAddr = PrunedAddr(VAddrBits)
+  val target:       PrunedAddr = PrunedAddr(VAddrBits)
 }
 
 class GhrMeta(implicit p: Parameters) extends GhrBundle {
   val ghr:      UInt      = UInt(GhrHistoryLength.W)
+  val imli:     UInt      = UInt(ImliHistoryLength.W)
   val hitMask:  Vec[Bool] = Vec(NumBtbResultEntries, Bool())
   val position: Vec[UInt] = Vec(NumBtbResultEntries, UInt(CfiPositionWidth.W))
 }
@@ -42,5 +46,6 @@ class GhrRedirect(implicit p: Parameters) extends GhrBundle {
   val valid:      Bool       = Bool()
   val startVAddr: PrunedAddr = PrunedAddr(VAddrBits)
   val taken:      Bool       = Bool()
+  val target:     PrunedAddr = PrunedAddr(VAddrBits)
   val meta:       GhrMeta    = new GhrMeta
 }
