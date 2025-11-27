@@ -63,6 +63,9 @@ trait HasBpuParameters extends HasFrontendParameters {
   def GhrShamt:         Int = NumBtbResultEntries
   def GhrHistoryLength: Int = bpuParameters.scParameters.GlobalTableInfos.map(_.HistoryLength).max
 
+  def LocalHistEntryNum:  Int = bpuParameters.scParameters.localHistEntryNum
+  def LocalHistoryLength: Int = bpuParameters.scParameters.LocalTableInfos.map(_.HistoryLength).max
+
   // phr history
   def AllFoldedHistoryInfo: Set[FoldedHistoryInfo] =
     bpuParameters.tageParameters.TableInfos.map {

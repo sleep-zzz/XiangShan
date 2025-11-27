@@ -38,6 +38,7 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   // global history
   private val s0_ghr = WireInit(0.U.asTypeOf(new GhrEntry))
   private val ghr    = RegInit(0.U.asTypeOf(new GhrEntry))
+  private val local  = RegInit(VecInit(Seq.fill(LocalHistEntryNum)(0.U(LocalHistoryLength.W))))
 
   /*
    * GHR train from redirect/s3_prediction

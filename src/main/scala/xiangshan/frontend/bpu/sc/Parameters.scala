@@ -28,9 +28,14 @@ case class ScParameters(
       new ScTableInfo(1024, 8),
       new ScTableInfo(1024, 16)
     ),
+    LocalTableInfos: Seq[ScTableInfo] = Seq(
+      new ScTableInfo(1024, 4),
+      new ScTableInfo(1024, 8)
+    ),
     biasTableSize:       Int = 1024,
     biasUseTageBitWidth: Int = 2, // use tage_taken as index bits
     imliTableSize:       Int = 1024,
+    localHistEntryNum:   Int = 32,
     ctrWidth:            Int = 6,
     weightCtrWidth:      Int = 6,
     thresholdThresWidth: Int = 12,
@@ -51,13 +56,15 @@ trait HasScParameters extends HasBpuParameters {
   def thresholdThresWidth: Int              = scParameters.thresholdThresWidth
   def PathTableInfos:      Seq[ScTableInfo] = scParameters.PathTableInfos
   def PathTableSize:       Int              = PathTableInfos.length
-  def NumPathTables:       Int              = PathTableInfos.length
+  def PathTablesNum:       Int              = PathTableInfos.length
   def GlobalTableInfos:    Seq[ScTableInfo] = scParameters.GlobalTableInfos
   def GlobalTableSize:     Int              = GlobalTableInfos.length
   def BiasTableSize:       Int              = scParameters.biasTableSize
   def BiasUseTageBitWidth: Int              = scParameters.biasUseTageBitWidth
   def BiasTableNumWays:    Int              = NumWays * BiasUseTageBitWidth // add tage_taken bits as wayIdx
   def ImliTableSize:       Int              = scParameters.imliTableSize
+  def LocalTableInfos:     Seq[ScTableInfo] = scParameters.LocalTableInfos
+  def LocalTableSize:      Int              = LocalTableInfos.length
   def WriteBufferSize:     Int              = scParameters.WriteBufferSize
   def TagWidth:            Int              = scParameters.TagWidth
 }
