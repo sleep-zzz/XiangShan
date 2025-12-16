@@ -26,6 +26,12 @@ class GhrEntry(implicit p: Parameters) extends GhrBundle {
   val ghr:   UInt = UInt(GhrHistoryLength.W)
   val imli:  UInt = UInt(ImliHistoryLength.W)
 }
+class GhrResp(implicit p: Parameters) extends GhrBundle {
+  val valid: Bool = Bool()
+  val ghr:   UInt = UInt(GhrHistoryLength.W)
+  val imli:  UInt = UInt(ImliHistoryLength.W)
+  val local: UInt = UInt(LocalHistoryLength.W)
+}
 class GhrUpdate(implicit p: Parameters) extends GhrBundle {
   val taken:        Bool       = Bool()
   val hitMask:      Vec[Bool]  = Vec(NumBtbResultEntries, Bool())
@@ -38,6 +44,7 @@ class GhrUpdate(implicit p: Parameters) extends GhrBundle {
 class GhrMeta(implicit p: Parameters) extends GhrBundle {
   val ghr:      UInt      = UInt(GhrHistoryLength.W)
   val imli:     UInt      = UInt(ImliHistoryLength.W)
+  val local:    UInt      = UInt(LocalHistoryLength.W)
   val hitMask:  Vec[Bool] = Vec(NumBtbResultEntries, Bool())
   val position: Vec[UInt] = Vec(NumBtbResultEntries, UInt(CfiPositionWidth.W))
 }

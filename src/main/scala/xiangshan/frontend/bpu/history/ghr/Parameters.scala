@@ -15,8 +15,10 @@
 
 package xiangshan.frontend.bpu.history.ghr
 
+import chisel3.util._
 import xiangshan.frontend.bpu.HasBpuParameters
 
 trait HasGhrParameters extends HasBpuParameters {
-  def ImliHistoryLength: Int = 8
+  def ImliHistoryLength: Int = bpuParameters.scParameters.imliHistoryLength
+  def ScBankWidth:       Int = log2Ceil(bpuParameters.scParameters.NumBanks)
 }

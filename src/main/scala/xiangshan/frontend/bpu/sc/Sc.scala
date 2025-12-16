@@ -69,10 +69,10 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   private val scThreshold = RegInit(VecInit.tabulate(NumWays)(_ => ScThreshold(p)))
 
   private val resetDone = RegInit(false.B)
-  when(pathTable.map(_.io.req.ready).reduce(_ && _) &&
-    globalTable.map(_.io.req.ready).reduce(_ && _) &&
-    imliTable.io.req.ready &&
-    biasTable.io.req.ready) {
+  when(pathTable.map(_.io.resetDone).reduce(_ && _) &&
+    globalTable.map(_.io.resetDone).reduce(_ && _) &&
+    imliTable.io.resetDone &&
+    biasTable.io.resetDone) {
     resetDone := true.B
   }
   io.resetDone := resetDone
@@ -157,7 +157,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     )
   )
 
-  private val s0_imliIdx: UInt = getImliTableIdx(s0_startVAddr, s0_ghr.imli, ImliTableSize)
+  private val s0_imliIdx: UInt = getImliTableIdx(s0_startVAddr, s0_ghr.imli, ImliTableSize / NumWays / NumBanks)
 
   private val s0_biasIdx: UInt = getBiasTableIdx(s0_startVAddr, BiasTableSize)
 
@@ -337,8 +337,12 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   )
 
   private val t1_imliSetIdx: UInt =
-    getImliTableIdx(t1_train.startVAddr, RegEnable(t1_meta.scGhr.imli, io.train.valid), ImliTableSize)
-  private val t1_biasSetIdx: UInt = getBiasTableIdx(t1_train.startVAddr, BiasTableSize)
+    getImliTableIdx(
+      t1_train.startVAddr,
+      t1_meta.scGhr.imli,
+      ImliTableSize / NumWays / NumBanks
+    )
+  private val t1_biasSetIdx: UInt = getBiasTableIdx(t1_train.startVAddr, BiasTableSize / BiasTableNumWays / NumBanks)
 
   private val t1_oldPathCtrs    = VecInit(t1_meta.scPathResp.map(v => VecInit(v.map(r => r.asTypeOf(new ScEntry())))))
   private val t1_oldGlobalCtrs  = VecInit(t1_meta.scGlobalResp.map(v => VecInit(v.map(r => r.asTypeOf(new ScEntry())))))

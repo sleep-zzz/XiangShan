@@ -35,6 +35,7 @@ case class ScParameters(
     biasTableSize:       Int = 1024,
     biasUseTageBitWidth: Int = 2, // use tage_taken as index bits
     imliTableSize:       Int = 1024,
+    imliHistoryLength:   Int = 8,
     localHistEntryNum:   Int = 32,
     ctrWidth:            Int = 6,
     weightCtrWidth:      Int = 6,
@@ -63,6 +64,7 @@ trait HasScParameters extends HasBpuParameters {
   def BiasUseTageBitWidth: Int              = scParameters.biasUseTageBitWidth
   def BiasTableNumWays:    Int              = NumWays * BiasUseTageBitWidth // add tage_taken bits as wayIdx
   def ImliTableSize:       Int              = scParameters.imliTableSize
+  def ImliHistoryLength:   Int              = scParameters.imliHistoryLength
   def LocalTableInfos:     Seq[ScTableInfo] = scParameters.LocalTableInfos
   def LocalTableSize:      Int              = LocalTableInfos.length
   def WriteBufferSize:     Int              = scParameters.WriteBufferSize

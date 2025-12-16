@@ -19,6 +19,7 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.util.SeqToAugmentedSeq
 import org.chipsalliance.cde.config.Parameters
+import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.BpuRedirect
 import xiangshan.frontend.bpu.StageCtrl
 
@@ -27,7 +28,8 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
     val stageCtrl: StageCtrl   = Input(new StageCtrl)
     val update:    GhrUpdate   = Input(new GhrUpdate)
     val redirect:  GhrRedirect = Input(new GhrRedirect)
-    val s0_ghist:  GhrEntry    = Output(new GhrEntry)
+    val s0_pc:     PrunedAddr  = Input(new PrunedAddr(VAddrBits))
+    val s0_ghist:  GhrResp     = Output(new GhrResp)
     val ghist:     GhrEntry    = Output(new GhrEntry)
   }
   val io = IO(new GhrIO)
@@ -36,14 +38,14 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val s3_fire = io.stageCtrl.s3_fire
 
   // global history
-  private val s0_ghr = WireInit(0.U.asTypeOf(new GhrEntry))
-  private val ghr    = RegInit(0.U.asTypeOf(new GhrEntry))
-  private val local  = RegInit(VecInit(Seq.fill(LocalHistEntryNum)(0.U(LocalHistoryLength.W))))
+  private val s0_hist = WireInit(0.U.asTypeOf(new GhrResp))
+  private val ghr     = RegInit(0.U.asTypeOf(new GhrEntry))
+  private val local   = RegInit(VecInit(Seq.fill(LocalHistEntryNum)(0.U(LocalHistoryLength.W))))
 
   /*
    * GHR train from redirect/s3_prediction
    */
-  io.s0_ghist := s0_ghr
+  io.s0_ghist := s0_hist
   io.ghist    := ghr
 
   /*
@@ -55,16 +57,18 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val s3_firstTakenIdx = OHToUInt(s3_update.firstTakenOH)
   private val s3_firstTakenPos = s3_update.position(s3_firstTakenIdx)
   private val s3_branchVAddr   = getBranchVAddr(s3_update.pc, s3_firstTakenPos)
+  private val s3_localIndex    = getLocalHistIndex(s3_update.pc)
   private val s3_imliTaken =
     s3_branchVAddr.addr > s3_update.target.addr // TODO: IMLI taken calculation may be wrong
   private val s3_lessThanFirstTaken = s3_update.position.zip(s3_hitMask).map {
     case (pos, hit) => hit && (pos < s3_firstTakenPos)
   }
   // NOTE: GhrShamt is NumBtbResultEntries, but numLess may be 1 larger than GhrShamt
-  private val s3_numLess    = PopCount(s3_lessThanFirstTaken)
-  private val s3_numHit     = PopCount(s3_hitMask)
-  private val s3_updateGhr  = getNewGhr(ghr.ghr, s3_numLess, s3_numHit, s3_taken)(GhrHistoryLength)
-  private val s3_updateImli = getNewGhr(ghr.imli, s3_numLess, s3_numHit, s3_imliTaken)(ImliHistoryLength)
+  private val s3_numLess     = PopCount(s3_lessThanFirstTaken)
+  private val s3_numHit      = PopCount(s3_hitMask)
+  private val s3_updateGhr   = getNewGhr(ghr.ghr, s3_numLess, s3_numHit, s3_taken)(GhrHistoryLength)
+  private val s3_updateImli  = getNewGhr(ghr.imli, s3_numLess, s3_numHit, s3_imliTaken)(ImliHistoryLength)
+  private val s3_updateLocal = getNewGhr(local(s3_localIndex), s3_numLess, s3_numHit, s3_taken)(LocalHistoryLength)
   require(isPow2(GhrShamt), "GhrShamt must be pow2")
 
   /*
@@ -73,9 +77,11 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val r0_valid        = io.redirect.valid
   private val r0_metaGhr      = io.redirect.meta.ghr
   private val r0_metaImli     = io.redirect.meta.imli
+  private val r0_metaLocal    = io.redirect.meta.local
   private val r0_oldPositions = io.redirect.meta.position
   private val r0_oldHits      = io.redirect.meta.hitMask
   private val r0_taken        = io.redirect.taken
+  private val r0_localIndex   = getLocalHistIndex(io.redirect.startVAddr)
   private val r0_imliTaken =
     io.redirect.startVAddr.addr > io.redirect.target.addr // TODO: IMLI taken calculation may be wrong
   private val r0_takenPosition = getAlignedInstOffset(io.redirect.startVAddr) // FIXME: position calculate maybe wrong
@@ -85,27 +91,35 @@ class Ghr(implicit p: Parameters) extends GhrModule with Helpers {
   private val r0_numLess = PopCount(r0_lessThanPc)
   private val r0_numHit  = PopCount(r0_oldHits)
   // TODO: calculate the new ghr based on redirect info maybe need more cycles
-  private val r0_updateGhr  = getNewGhr(r0_metaGhr, r0_numLess, r0_numHit, r0_taken)(GhrHistoryLength)
-  private val r0_updateImli = getNewGhr(r0_metaImli, r0_numLess, r0_numHit, r0_imliTaken)(ImliHistoryLength)
+  private val r0_updateGhr   = getNewGhr(r0_metaGhr, r0_numLess, r0_numHit, r0_taken)(GhrHistoryLength)
+  private val r0_updateImli  = getNewGhr(r0_metaImli, r0_numLess, r0_numHit, r0_imliTaken)(ImliHistoryLength)
+  private val r0_updateLocal = getNewGhr(r0_metaLocal, r0_numLess, r0_numHit, r0_taken)(LocalHistoryLength)
+
+  private val s0_localIndex = getLocalHistIndex(io.s0_pc)
   // update from redirect or update
   when(r0_valid) {
-    ghr.valid    := false.B
-    ghr.ghr      := r0_updateGhr // TODO: redirect ghr recovery can delay one/two cycle
-    ghr.imli     := r0_updateImli
-    s0_ghr.valid := false.B
-    s0_ghr.ghr   := r0_updateGhr
-    s0_ghr.imli  := r0_updateImli
+    ghr.valid            := false.B
+    ghr.ghr              := r0_updateGhr // TODO: redirect ghr recovery can delay one/two cycle
+    ghr.imli             := r0_updateImli
+    local(r0_localIndex) := r0_updateLocal
+    s0_hist.valid        := false.B
+    s0_hist.ghr          := r0_updateGhr
+    s0_hist.imli         := r0_updateImli
+    s0_hist.local        := r0_updateLocal
   }.elsewhen(s3_fire) {
-    ghr.valid    := true.B
-    ghr.ghr      := s3_updateGhr
-    ghr.imli     := s3_updateImli
-    s0_ghr.valid := true.B // if s3_fire, ghr can be used
-    s0_ghr.ghr   := s3_updateGhr
-    s0_ghr.imli  := s3_updateImli
+    ghr.valid            := true.B
+    ghr.ghr              := s3_updateGhr
+    ghr.imli             := s3_updateImli
+    local(s3_localIndex) := s3_updateLocal
+    s0_hist.valid        := true.B // if s3_fire, ghr can be used
+    s0_hist.ghr          := s3_updateGhr
+    s0_hist.imli         := s3_updateImli
+    s0_hist.local        := s3_updateLocal
   }.otherwise {
-    s0_ghr.valid := (!r0_valid) && ghr.valid
-    s0_ghr.ghr   := ghr.ghr
-    s0_ghr.imli  := ghr.imli
+    s0_hist.valid := (!r0_valid) && ghr.valid
+    s0_hist.ghr   := ghr.ghr
+    s0_hist.imli  := ghr.imli
+    s0_hist.local := local(s0_localIndex)
   }
 
   if (EnableCommitGHistDiff) {

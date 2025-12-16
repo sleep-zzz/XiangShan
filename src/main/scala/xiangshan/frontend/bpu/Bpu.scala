@@ -418,6 +418,7 @@ class Bpu(implicit p: Parameters) extends BpuModule with HalfAlignHelper {
 
   // ghr update
   ghr.io.stageCtrl           := stageCtrl
+  ghr.io.s0_pc               := s0_pc
   ghr.io.update.pc           := s3_pc
   ghr.io.update.target       := s3_prediction.target
   ghr.io.update.taken        := s3_taken
