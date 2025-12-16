@@ -331,10 +331,15 @@ class Bpu(implicit p: Parameters) extends BpuModule with HalfAlignHelper {
   s1_utageMeta.baseCfiPosition  := baseBrCfiPosition
 
   private val s2_mbtbResult = mbtb.io.result
-  private val s2_condTakenMask = VecInit((s2_mbtbResult zip tage.io.takenMask zip tage.io.hasProvided).map {
-    case ((e, tageTaken), tageProvided) =>
-      e.valid && e.bits.attribute.isConditional && Mux(tageProvided, tageTaken, e.bits.taken)
-  })
+  private val s2_condTakenMask =
+    VecInit((s2_mbtbResult zip tage.io.takenMask zip tage.io.hasProvided zip scUsed zip scTakenMask).map {
+      case ((((e, tageTaken), tageProvided), useSc), scTaken) =>
+        e.valid && e.bits.attribute.isConditional && Mux(
+          tageProvided && useSc,
+          scTaken,
+          Mux(tageProvided && !useSc, tageTaken, e.bits.taken)
+        )
+    })
 
   // private val s2_condTakenMask = VecInit(scUsed.zip(scTakenMask).zip(tage.io.condTakenMask).map {
   //   case ((useSc, scTaken), tageTaken) => Mux(useSc, scTaken, tageTaken)
