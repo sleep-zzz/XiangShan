@@ -428,12 +428,45 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   })
   dontTouch(t1_writeThresVec)
 
+  private val t1_writeThresVecNew = VecInit.tabulate(NumWays)(_ => ThresholdCounter.Init)
+  private val thresholdWayMask =
+    VecInit(Seq.fill(ResolveEntryBranchNumber)(VecInit(Seq.fill(NumWays)(false.B))))
+  private val thresholdDirMask =
+    VecInit(Seq.fill(ResolveEntryBranchNumber)(VecInit(Seq.fill(NumWays)(false.B))))
+  t1_writeValidVec.zip(t1_writeTakenVec).zip(t1_branchesWayIdxVec).zip(t1_branchesScIdxVec).zipWithIndex.foreach {
+    case ((((valid, taken), writeIdx), oldIdx), i) =>
+      val scWrong = taken =/= t1_meta.scPred(oldIdx)
+      val needUpdate = valid && t1_meta.tagePredValid(oldIdx) &&
+        (t1_meta.tagePred(oldIdx) =/= t1_meta.scPred(oldIdx)) &&
+        (scWrong || !t1_meta.sumAboveThres(oldIdx))
+      thresholdWayMask(i)(writeIdx) := needUpdate
+      thresholdDirMask(i)(writeIdx) := scWrong
+  }
+  scThreshold.zip(t1_writeThresVecNew).zipWithIndex.foreach { case ((oldEntry, newEntry), i) =>
+    val writeHit = thresholdWayMask.map(_(i))
+    val writeDir = thresholdDirMask.map(_(i))
+    val inc      = PopCount(writeHit.zip(writeDir).map { case (hit, dir) => hit && dir })
+    val dec      = PopCount(writeHit.zip(writeDir).map { case (hit, dir) => hit && !dir })
+    newEntry := Mux(inc >= dec, oldEntry.getIncrease(inc - dec), oldEntry.getDecrease(dec - inc))
+  }
+  dontTouch(t1_writeThresVecNew)
+
+  private val thresDiff = VecInit(t1_writeThresVec.zip(t1_writeThresVecNew).map {
+    case (a, b) => a.value =/= b.value
+  })
+
+  dontTouch(thresDiff)
+  XSError(t1_writeValid && thresDiff.reduce(_ || _), "newThresholds calculate error\n")
+
   // calculate new path table entries
   private val t1_writePathEntryVec = WireInit(
     VecInit.fill(NumPathTables)(VecInit.fill(NumWays)(0.U.asTypeOf(new ScEntry())))
   )
-  t1_oldPathCtrs.zip(t1_writePathEntryVec).foreach {
-    case (oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]) =>
+  private val t1_writePathEntryVecNew = WireInit(
+    VecInit.fill(NumPathTables)(VecInit.fill(NumWays)(0.U.asTypeOf(new ScEntry())))
+  )
+  t1_oldPathCtrs.zip(t1_writePathEntryVec).zip(t1_writePathEntryVecNew).foreach {
+    case ((oldEntries: Vec[ScEntry], writeEntries: Vec[ScEntry]), writeEntriesNew: Vec[ScEntry]) =>
       writeEntries := updateEntry(
         oldEntries,
         t1_writeValidVec,
@@ -442,7 +475,25 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
         t1_branchesScIdxVec,
         t1_meta
       )
+      writeEntriesNew := updateEntryNew(
+        oldEntries,
+        t1_writeValidVec,
+        t1_writeTakenVec,
+        t1_branchesWayIdxVec,
+        t1_branchesScIdxVec,
+        t1_meta
+      )
   }
+  private val diffEntry =
+    t1_writePathEntryVec.zip(t1_writePathEntryVecNew).map { case (writeEntries, writeEntriesNew) =>
+      writeEntries.zip(writeEntriesNew).map {
+        case (a, b) => a.ctr.value =/= b.ctr.value
+      }.reduce(_ || _)
+    }.reduce(_ || _)
+
+  dontTouch(t1_writePathEntryVecNew)
+  dontTouch(diffEntry)
+  XSError(t1_writeValid && diffEntry, "newEntries calculate error\n")
 
   private val t1_writePathWayMaskVec = t1_oldPathCtrs.zip(t1_writePathEntryVec).map { case (oldEntries, newEntries) =>
     updateWayMask(oldEntries, newEntries, t1_writeValidVec, t1_branchesWayIdxVec)
@@ -470,14 +521,35 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     }
 
   // calculate bias table new entries and wayMask
-  private val t1_writeBiasEntryVec = WireInit(VecInit.fill(BiasTableNumWays)(0.U.asTypeOf(new ScEntry())))
-  private val t1_writeBiasWayMask  = WireInit(VecInit.fill(BiasTableNumWays)(false.B))
+  private val t1_writeBiasEntryVec    = WireInit(VecInit.fill(BiasTableNumWays)(0.U.asTypeOf(new ScEntry())))
+  private val t1_writeBiasEntryVecNew = WireInit(VecInit.fill(BiasTableNumWays)(0.U.asTypeOf(new ScEntry())))
+  private val t1_writeBiasWayMask     = WireInit(VecInit.fill(BiasTableNumWays)(false.B))
   t1_branchesWayIdxVec.zip(t1_writeValidVec).zip(t1_branchesScIdxVec).foreach {
     case ((wayIdx, writeValid), branchIdx) =>
       val biasWayIdx = Cat(wayIdx, t1_oldBiasLowBits(branchIdx))
       when(writeValid && t1_oldBiasCtrs(biasWayIdx).ctr =/= t1_writeBiasEntryVec(biasWayIdx).ctr) {
         t1_writeBiasWayMask(biasWayIdx) := true.B
       }
+  }
+
+  private val writeBiasWayMask =
+    VecInit(Seq.fill(t1_writeValidVec.length)(VecInit(Seq.fill(t1_oldBiasCtrs.length)(false.B))))
+  private val writeBiasDirMask =
+    VecInit(Seq.fill(t1_writeValidVec.length)(VecInit(Seq.fill(t1_oldBiasCtrs.length)(false.B))))
+  t1_writeValidVec.zip(t1_writeTakenVec).zip(t1_branchesWayIdxVec).zip(t1_branchesScIdxVec).zipWithIndex.foreach {
+    case ((((valid, taken), writeIdx), oldIdx), i) =>
+      val biasWayIdx = Cat(writeIdx, t1_oldBiasLowBits(oldIdx))
+      val needUpdate = valid && t1_meta.tagePredValid(oldIdx) &&
+        (t1_meta.scPred(oldIdx) =/= taken || !t1_meta.sumAboveThres(oldIdx))
+      writeBiasWayMask(i)(biasWayIdx) := needUpdate
+      writeBiasDirMask(i)(biasWayIdx) := taken
+  }
+  t1_oldBiasCtrs.zip(t1_writeBiasEntryVecNew).zipWithIndex.foreach { case ((oldEntry, newEntry), i) =>
+    val writeHit = writeBiasWayMask.map(_(i))
+    val writeDir = writeBiasDirMask.map(_(i))
+    val inc      = PopCount(writeHit.zip(writeDir).map { case (hit, dir) => hit && dir })
+    val dec      = PopCount(writeHit.zip(writeDir).map { case (hit, dir) => hit && !dir })
+    newEntry.ctr := Mux(inc >= dec, oldEntry.ctr.getIncrease(inc - dec), oldEntry.ctr.getDecrease(dec - inc))
   }
 
   t1_oldBiasCtrs.zip(t1_writeBiasEntryVec).zipWithIndex.foreach { case ((oldEntry, newEntry), wayIdx) =>
@@ -495,6 +567,13 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     }
     newEntry.ctr := WireInit(newCtr)
   }
+
+  private val t1_biasEntryDiff = VecInit(t1_writeBiasEntryVec.zip(t1_writeBiasEntryVecNew).map {
+    case (a, b) => a.asUInt =/= b.asUInt
+  })
+  dontTouch(t1_writeBiasEntryVecNew)
+  dontTouch(t1_biasEntryDiff)
+  XSError(t1_writeValid && t1_biasEntryDiff.reduce(_ || _), "new bias entries calculate error\n")
 
   // new entries write back to tables
   pathTable.zip(t1_pathSetIdx).zip(t1_writePathEntryVec).zip(t1_writePathWayMaskVec).foreach {
