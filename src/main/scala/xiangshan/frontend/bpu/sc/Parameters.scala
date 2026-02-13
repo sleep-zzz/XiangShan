@@ -43,6 +43,8 @@ case class ScParameters(
     CtrWidth:            Int = 6,
     ThresholdWidth:      Int = 13,
     ThresholdInit:       Int = 1130,
+    MiniThreshold:       Int = 768,
+    MaxThreshold:        Int = 7100,
     NumTables:           Int = 2,
     NumBanks:            Int = 2,
     WriteBufferSize:     Int = 4,
@@ -65,6 +67,8 @@ trait HasScParameters extends HasBpuParameters {
   def NumBanks:          Int = scParameters.NumBanks
   def BankWidth:         Int = log2Ceil(NumBanks)
   def ThresholdWidth:    Int = scParameters.ThresholdWidth
+  def MiniThreshold:     Int = scParameters.MiniThreshold
+  def MaxThreshold:      Int = scParameters.MaxThreshold
 
   def PathTableInfos: Seq[ScTableInfo] = scParameters.PathTableInfos
   def NumPathTables:  Int              = PathTableInfos.length
