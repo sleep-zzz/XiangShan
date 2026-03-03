@@ -17,6 +17,8 @@ package xiangshan.frontend.bpu.sc
 
 import chisel3._
 import chisel3.util._
+import scala.math.min
+import utility.ParallelXOR
 import xiangshan.HasXSParameter
 import xiangshan.frontend.PrunedAddr
 import xiangshan.frontend.bpu.FoldedHistoryInfo
@@ -31,7 +33,13 @@ trait Helpers extends HasScParameters with PhrHelper {
   def getBankMask(pc: PrunedAddr): UInt =
     UIntToOH((pc >> (instOffsetBits + log2Ceil(NumWays)))(BankWidth - 1, 0))
 
-  def getWayIdx(cfiPosition: UInt): UInt = cfiPosition(log2Ceil(NumWays) - 1, 0)
+  def getWayIdx(cfiPosition: UInt): UInt = {
+    val nChunks = (cfiPosition.getWidth + log2Ceil(NumWays) - 1) / log2Ceil(NumWays)
+    val hashChunks = (0 until nChunks) map { i =>
+      cfiPosition(min((i + 1) * log2Ceil(NumWays), cfiPosition.getWidth) - 1, i * log2Ceil(NumWays))
+    }
+    ParallelXOR(hashChunks)
+  }
 
   // get pc ^ foldedHist for index
   def getPathTableIdx(pc: PrunedAddr, info: FoldedHistoryInfo, allFh: PhrAllFoldedHistories, numSets: Int): UInt =
@@ -87,7 +95,7 @@ trait Helpers extends HasScParameters with PhrHelper {
     oldEntries.zip(newEntries).zipWithIndex.foreach { case ((oldEntry, newEntry), wayIdx) =>
       val newCtr = writeValidVec.zip(takenMask).zip(wayIdxVec).zip(branchIdxVec).foldLeft(oldEntry.ctr) {
         case (prevCtr, (((writeValid, writeTaken), writeWayIdx), branchIdx)) =>
-          val needUpdate = writeValid && writeWayIdx === wayIdx.U &&
+          val needUpdate = writeValid && writeWayIdx === wayIdx.U && metaData.tagePredValid(branchIdx) &&
             (metaData.scPred(branchIdx) =/= writeTaken || !metaData.sumAboveThres(branchIdx))
           prevCtr.getUpdate(
             writeTaken,
