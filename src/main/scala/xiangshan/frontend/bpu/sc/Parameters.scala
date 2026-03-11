@@ -43,7 +43,7 @@ case class ScParameters(
     ThresholdWidth:      Int = 13,
     ThresholdInit:       Int = 1130, // magic number,greater than min and less than max
     NumBanks:            Int = 2,
-    WriteBufferSize:     Int = 4,
+    WriteBufferSize:     Int = 8,
     EnableScTrace:       Boolean = true
 ) {}
 
@@ -84,12 +84,16 @@ trait HasScParameters extends HasBpuParameters {
   def NumBWTables:        Int              = BackwardTableInfos.length
   def NumBWSets:          Int              = BackwardTableInfos(0).getNumSets(NumWays, NumBanks)
 
+  def SetIdxWidth: Int = log2Ceil(NumPathSets)
+
   // If tage LowConf, the totoalSum should be at least NumTables + 5, Threshold should be (NumTables + 5) << 6(threshold >> 3 + lowConf threshold >> 3)
   // The value of ctr saturation is 63.
   // If all ctrs are saturated, the corresponding Threshold should be (NumTables * 63) << 4(threshold >> 3 + highConf threshold >> 1)
   def NumTables:    Int = NumPathTables + NumGlobalTables + NumBiasTable + NumBWTables + NumImliTable
   def MinThreshold: Int = (NumTables + 5) << 6
   def MaxThreshold: Int = min((NumTables * 63) << 4, (1 << ThresholdWidth) - 1)
+
+  def StratPcShiftBits: Int = FetchBlockAlignWidth
 
   def WriteBufferSize: Int     = scParameters.WriteBufferSize
   def EnableScTrace:   Boolean = scParameters.EnableScTrace
