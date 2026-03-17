@@ -573,7 +573,7 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
   /*
    *  train pipeline stage 2
    */
-  private val t2_writeValid                 = RegEnable(t1_writeValid, false.B, t1_fire)
+  private val t2_writeValid                 = RegNext(t1_writeValid, init = false.B)
   private val t2_bankMask                   = RegEnable(t1_bankMask, t1_fire)
   private val t2_pathSetIdx                 = RegEnable(VecInit(t1_pathSetIdx), t1_fire)
   private val t2_globalSetIdx               = RegEnable(VecInit(t1_globalSetIdx), t1_fire)
