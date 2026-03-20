@@ -292,21 +292,25 @@ class Sc(implicit p: Parameters) extends BasePredictor with HasScParameters with
     val tageConfLow  = s2_providerCtr(i).isWeak
     val conf         = WireInit(false.B)
     when(hit && valid && tageConfHigh) {
-      conf            := aboveThreshold(sum, thres >> 1)
-      s2_useScPred(i) := Mux(conf, true.B, false.B)
+      conf                := aboveThreshold(sum, thres >> 1)
+      s2_useScPred(i)     := Mux(conf, true.B, false.B)
+      s2_sumAboveThres(i) := conf
     }.elsewhen(hit && valid && tageConfMid) {
-      conf            := aboveThreshold(sum, thres >> 2)
-      s2_useScPred(i) := Mux(conf, true.B, false.B)
+      conf                := aboveThreshold(sum, thres >> 2)
+      s2_useScPred(i)     := Mux(conf, true.B, false.B)
+      s2_sumAboveThres(i) := conf
     }.elsewhen(hit && valid && tageConfLow) {
-      conf            := aboveThreshold(sum, thres >> 3)
-      s2_useScPred(i) := Mux(conf, true.B, false.B)
+      conf                := aboveThreshold(sum, thres >> 3)
+      s2_useScPred(i)     := Mux(conf, true.B, false.B)
+      s2_sumAboveThres(i) := conf
     }.otherwise {
-      conf            := false.B
-      s2_useScPred(i) := false.B
+      conf                := false.B
+      s2_useScPred(i)     := false.B
+      s2_sumAboveThres(i) := true.B
     }
     // If the sum is greater than threshold/2, then the current threshold can already use the sc result under tage high Confidence.
     // And if scWrang does not occur at this time, there is no need to update ctr/threshold again
-    s2_sumAboveThres(i) := aboveThreshold(sum, thres >> 1)
+//    s2_sumAboveThres(i) := aboveThreshold(sum, thres >> 1)
     dontTouch(tageConfHigh)
     dontTouch(tageConfMid)
     dontTouch(tageConfLow)
