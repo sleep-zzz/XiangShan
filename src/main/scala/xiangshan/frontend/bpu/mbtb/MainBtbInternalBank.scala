@@ -170,12 +170,12 @@ class MainBtbInternalBank(
   private val snapshotDataValid = snapshotValid.zip(snapshotValidNext).map { case (v, n) => !n && v }
 
   private val snapshotReq = VecInit(entryWriteBuffer.io.read.zipWithIndex.map { case (bufRead, i) =>
-    RegEnable(bufRead.bits, !snapshotValid(i) && pendingValid(i) && !read.req.valid)
+    RegEnable(bufRead.bits, init = 0.U.asTypeOf(bufRead.bits), !snapshotValid(i) && pendingValid(i) && !read.req.valid)
   })
   // The entry SRAM has one-cycle read latency with holdRead behavior, so each old entry is
   // captured on the cycle indicated by the valid-rise edge of snapshotValid.
   private val snapshotResp = VecInit(entrySrams.zipWithIndex.map { case (sram, i) =>
-    RegEnable(sram.io.r.resp.data.head, snapshotDataValid(i))
+    RegEnable(sram.io.r.resp.data.head, init = 0.U.asTypeOf(sram.io.r.resp.data.head), snapshotDataValid(i))
   })
   private val snapshotEligible = VecInit(snapshotValid.zip(snapshotValidNext).zip(snapshotVbtbDone).map {
     case ((valid, dataReady), vbtbDone) => valid && dataReady && !vbtbDone
